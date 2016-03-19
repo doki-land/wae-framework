@@ -1,0 +1,13 @@
+﻿[package]
+name = "wae-dist"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+readme = "readme.md"
+description = "通用：将产品工作区中的 cdylib 暂存到 npm 平台包"
+publish = false
+
+[dependencies]
+thiserror = { workspace = true }

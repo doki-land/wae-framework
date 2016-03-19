@@ -1,0 +1,22 @@
+# OS
+.DS_Store/
+thumbs.db
+time-travel.*
+
+# IDE
+.vscode/
+.vs/
+.idea/
+*.iml
+*.log
+*.txt
+
+# Rust
+target/
+Cargo.lock
+
+# Node
+node_modules/
+
+# Local path overrides
+.cargo/config.toml

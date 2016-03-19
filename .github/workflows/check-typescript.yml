@@ -1,0 +1,16 @@
+name: check-typescript
+
+on:
+  push:
+    branches: [master, dev]
+  pull_request:
+    branches: [master, dev]
+
+jobs:
+  skip:
+    name: 无仓库内 TS 产品面
+    runs-on: ubuntu-latest
+    steps:
+      - name: 说明
+        run: |
+          echo "WAE 主仓为 Rust 元工具；无内嵌 TS 产品包需要检查。"

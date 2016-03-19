@@ -1,0 +1,44 @@
+name: publish-npm
+
+# 手动闸门：对调用方提供的 npm 包目录执行 `wae publish`（默认 dry-run）。
+on:
+  workflow_dispatch:
+    inputs:
+      dirs:
+        description: "逗号分隔的 npm 包目录（相对仓库根）"
+        required: true
+        type: string
+      execute:
+        description: "真正执行 npm publish"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: https://registry.npmjs.org
+      - uses: dtolnay/rust-toolchain@stable
+      - name: wae publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          ARGS=()
+          IFS=',' read -ra DIRS <<< "${{ inputs.dirs }}"
+          for d in "${DIRS[@]}"; do
+            d="$(echo "$d" | xargs)"
+            ARGS+=(--dir "$d")
+          done
+          if [ "${{ inputs.execute }}" = "true" ]; then
+            cargo run -p wae --release -- publish "${ARGS[@]}" --execute
+          else
+            cargo run -p wae --release -- publish "${ARGS[@]}"
+          fi

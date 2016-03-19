@@ -1,0 +1,2 @@
+# WAE 以 Rust 元工具为主；此文件仅保留给 pnpm 工具链解析。
+packages: []

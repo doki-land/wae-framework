@@ -1,0 +1,13 @@
+﻿[package]
+name = "wae-napi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+readme = "readme.md"
+description = "自研薄 Node-API 绑定（dyn-symbols，无 napi-rs）"
+publish = false
+
+[dependencies]
+libloading = { workspace = true }

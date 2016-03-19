@@ -1,0 +1,31 @@
+[workspace]
+resolver = "2"
+members = [
+    "projects/wae.rs/crates/wae",
+    "projects/wae.rs/crates/wae-napi",
+    "projects/wae.rs/crates/wae-webview-win32",
+    "projects/wae.rs/crates/wae-dist",
+]
+default-members = [
+    "projects/wae.rs/crates/wae",
+    "projects/wae.rs/crates/wae-napi",
+    "projects/wae.rs/crates/wae-webview-win32",
+    "projects/wae.rs/crates/wae-dist",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+authors = ["WAE Team <team@wae.dev>"]
+repository = "https://github.com/oovm/wae"
+
+[workspace.dependencies]
+thiserror = "2"
+clap = { version = "4", features = ["derive"] }
+libloading = "0.9"
+wae-dist = { path = "projects/wae.rs/crates/wae-dist" }
+
+[profile.release]
+lto = true
+panic = "abort"
