@@ -11,6 +11,11 @@
         "check:rust": "cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace",
         "build:ts": "pnpm -r --filter \"./projects/wae.ts/packages/**\" run build",
         "test:ts": "pnpm -r --filter \"./projects/wae.ts/packages/**\" run test",
-        "test": "pnpm run check:rust && pnpm run test:ts"
+        "test": "pnpm run check:rust && pnpm run test:ts",
+        "wae": "pnpm --filter @wae/wae exec node ./dist/cli.js"
+    },
+    "devDependencies": {
+        "@wae/commander": "workspace:*",
+        "@wae/wae": "workspace:*"
     }
 }

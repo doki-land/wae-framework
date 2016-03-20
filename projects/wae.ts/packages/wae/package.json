@@ -1,0 +1,46 @@
+{
+    "name": "@wae/wae",
+    "version": "0.1.0",
+    "type": "module",
+    "description": "WAE 元 CLI：脚手架、构建与分发原生 npm 工具",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/oovm/wae.git",
+        "directory": "projects/wae.ts/packages/wae"
+    },
+    "bin": {
+        "wae": "./dist/cli.js"
+    },
+    "main": "./dist/cli.js",
+    "types": "./dist/cli.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/cli.d.ts",
+            "default": "./dist/cli.js"
+        }
+    },
+    "files": [
+        "dist",
+        "locales",
+        "readme.md"
+    ],
+    "engines": {
+        "node": ">=20"
+    },
+    "scripts": {
+        "build": "tsc -p tsconfig.json",
+        "test": "node --import ../wae-commander/scripts/resolve-ts-from-js.mjs --test --experimental-strip-types ./tests/*.test.ts"
+    },
+    "dependencies": {
+        "@wae/commander": "workspace:*"
+    },
+    "devDependencies": {
+        "@types/node": "^22.15.0",
+        "typescript": "^5.8.3"
+    },
+    "keywords": [
+        "wae",
+        "cli"
+    ]
+}

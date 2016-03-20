@@ -1,0 +1,21 @@
+{
+    "cli": {
+        "intro": "WAE 元 CLI — 脚手架、构建、原生 npm 暂存与发布。",
+        "cmd": {
+            "new": "从 open-tools 模板脚手架新建工具项目",
+            "build": "在产品工作区执行 cargo build -p <package> --release",
+            "dist": "构建并把 cdylib 暂存到 npm 平台包目录",
+            "publish": "对一个或多个 npm 包目录执行 npm publish（默认 dry-run）"
+        },
+        "opt": {
+            "with-gui": "保留 GUI 静态页骨架",
+            "out": "新建项目的父目录",
+            "project": "产品工作区根目录（含 Cargo.toml）",
+            "package": "要构建的 Cargo 包名",
+            "dist-out": "平台包输出目录",
+            "file": "平台包内文件名（如 tool.win32-x64.node）",
+            "dir": "npm 包目录（可重复）",
+            "execute": "真正执行 publish（省略则为 --dry-run）"
+        }
+    }
+}

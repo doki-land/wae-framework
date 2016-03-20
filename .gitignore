@@ -17,6 +17,7 @@ Cargo.lock
 
 # Node
 node_modules/
+pnpm-lock.yaml
 
 # Local path overrides
 .cargo/config.toml
