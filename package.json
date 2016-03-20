@@ -3,12 +3,14 @@
     "private": true,
     "type": "module",
     "packageManager": "pnpm@10.28.0",
-    "description": "WAE：Rust 元 CLI 与自研薄 N-API / WebView 宿主",
+    "description": "WAE: Rust library crates + TypeScript meta CLI / commander",
     "repository": "https://github.com/oovm/wae",
     "homepage": "https://github.com/oovm/wae",
     "license": "MIT",
     "scripts": {
         "check:rust": "cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace",
-        "test": "pnpm run check:rust"
+        "build:ts": "pnpm -r --filter \"./projects/wae.ts/packages/**\" run build",
+        "test:ts": "pnpm -r --filter \"./projects/wae.ts/packages/**\" run test",
+        "test": "pnpm run check:rust && pnpm run test:ts"
     }
 }

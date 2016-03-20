@@ -1,0 +1,40 @@
+{
+    "name": "@wae/commander",
+    "version": "0.1.0",
+    "type": "module",
+    "description": "i18n-first TypeScript CLI 框架（命令树、locales 加载、commander.* chrome）",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/oovm/wae.git",
+        "directory": "projects/wae.ts/packages/wae-commander"
+    },
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "default": "./dist/index.js"
+        }
+    },
+    "files": [
+        "dist",
+        "readme.md"
+    ],
+    "engines": {
+        "node": ">=20"
+    },
+    "scripts": {
+        "build": "tsc -p tsconfig.json",
+        "test": "node --import ./scripts/resolve-ts-from-js.mjs --test --experimental-strip-types ./tests/*.test.ts"
+    },
+    "devDependencies": {
+        "@types/node": "^22.15.0",
+        "typescript": "^5.8.3"
+    },
+    "keywords": [
+        "wae",
+        "cli",
+        "i18n"
+    ]
+}
