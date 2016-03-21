@@ -7,10 +7,22 @@ on:
     branches: [master, dev]
 
 jobs:
-  skip:
-    name: 无仓库内 TS 产品面
+  typescript:
+    name: TypeScript packages
     runs-on: ubuntu-latest
     steps:
-      - name: 说明
-        run: |
-          echo "WAE 主仓为 Rust 元工具；无内嵌 TS 产品包需要检查。"
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          package-manager-cache: false
+      - name: Install
+        # 本仓不提交 pnpm-lock.yaml，禁止 frozen-lockfile
+        run: pnpm install --no-frozen-lockfile
+      - name: Build
+        run: pnpm run build:ts
+      - name: Test
+        run: pnpm run test:ts

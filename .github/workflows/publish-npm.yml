@@ -21,12 +21,19 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.0
+      - uses: actions/setup-node@v5
         with:
           node-version: "22"
           registry-url: https://registry.npmjs.org
-      - uses: dtolnay/rust-toolchain@stable
+          package-manager-cache: false
+      - name: Install
+        run: pnpm install --no-frozen-lockfile
+      - name: Build
+        run: pnpm run build:ts
       - name: wae publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -38,7 +45,7 @@ jobs:
             ARGS+=(--dir "$d")
           done
           if [ "${{ inputs.execute }}" = "true" ]; then
-            cargo run -p wae --release -- publish "${ARGS[@]}" --execute
+            pnpm exec wae publish "${ARGS[@]}" --execute
           else
-            cargo run -p wae --release -- publish "${ARGS[@]}"
+            pnpm exec wae publish "${ARGS[@]}"
           fi
