@@ -1,0 +1,11 @@
+{
+    "cli": {
+        "intro": "{{name}} — scaffolded by wae.",
+        "cmd": {
+            "hello": "Print a greeting"
+        },
+        "opt": {
+            "name": "Name to greet"
+        }
+    }
+}
