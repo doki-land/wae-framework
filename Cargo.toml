@@ -2,12 +2,14 @@
 resolver = "2"
 members = [
     "projects/wae.rs/crates/wae",
+    "projects/wae.rs/crates/wae-macros",
     "projects/wae.rs/crates/wae-napi",
     "projects/wae.rs/crates/wae-webview-win32",
     "projects/wae.rs/crates/wae-dist",
 ]
 default-members = [
     "projects/wae.rs/crates/wae",
+    "projects/wae.rs/crates/wae-macros",
     "projects/wae.rs/crates/wae-napi",
     "projects/wae.rs/crates/wae-webview-win32",
     "projects/wae.rs/crates/wae-dist",
@@ -22,9 +24,7 @@ repository = "https://github.com/oovm/wae"
 
 [workspace.dependencies]
 thiserror = "2"
-clap = { version = "4", features = ["derive"] }
 libloading = "0.9"
-wae-dist = { path = "projects/wae.rs/crates/wae-dist" }
 
 [profile.release]
 lto = true
