@@ -1,20 +1,37 @@
 # `wae`
 
-纯 Rust 元 CLI：为「Rust 核心 + 薄 N-API + TS 重组」类原生 npm 工具提供脚手架、构建与分发编排。
+WAE Rust **门面库**（不是 CLI bin）。统一导出：
 
-**不**绑定任何具体下游产品；`--project` / `--package` / `--out` 均由调用方显式传入。
+| 依赖 | 内容 |
+|------|------|
+| `wae-napi` | 薄 Node-API |
+| `wae-macros` | `#[function]` / `register_module!` |
+| `wae::webview`（feature `webview`，默认开） | Win32 WebView2 |
+| `wae::dist`（feature `dist`，默认开） | cdylib 暂存 |
 
-## 命令
+## 用法
 
-| 命令 | 作用 |
-|---|---|
-| `wae new <name>` | 从本地模板生成工具骨架（可选 `--with-gui`） |
-| `wae build --project <dir> --package <crate>` | 在产品工作区 release 构建指定 Cargo 包 |
-| `wae dist --project <dir> --package <crate> --out <平台包目录> --file <文件名>` | 构建并将 cdylib 暂存为 `.node` |
-| `wae publish --dir <npm包> [--execute]` | 对给定 npm 目录执行 publish（默认 dry-run） |
-
-```bash
-cargo run -p wae -- new demo --with-gui --out .
-cargo run -p wae -- build --project path/to/tool --package tool-napi
-cargo run -p wae -- dist --project path/to/tool --package tool-napi --out path/to/tool-win32-x64 --file tool.win32-x64.node
+```toml
+[dependencies]
+wae = { path = "../wae" }
+# 或关闭可选面：
+# wae = { path = "../wae", default-features = false }
 ```
+
+```rust
+use wae::{function, register_module, CallContext, JsValue, Result};
+
+#[function]
+fn version(ctx: CallContext) -> Result<JsValue> {
+    ctx.env().string(env!("CARGO_PKG_VERSION"))
+}
+
+#[function(js_name = "openGui")]
+fn open_gui(ctx: CallContext) -> Result<JsValue> {
+    ctx.env().undefined()
+}
+
+register_module![version, open_gui];
+```
+
+产品命令行请用 `@wae/wae` / `@wae/commander`。

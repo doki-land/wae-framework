@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "wae"
 version.workspace = true
 edition.workspace = true
@@ -6,13 +6,18 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 readme = "readme.md"
-description = "WAE 元 CLI：脚手架、构建与分发原生 npm 工具"
+description = "WAE Rust 门面库：统一导出 N-API / WebView / dist 与过程宏"
 publish = false
 
-[[bin]]
-name = "wae"
-path = "src/main.rs"
+[features]
+default = ["dist", "webview"]
+## 导出 `wae-dist` 暂存 API
+dist = ["dep:wae-dist"]
+## 导出 `wae-webview-win32`（非 Windows 上为 stub / 错误类型）
+webview = ["dep:wae-webview-win32"]
 
 [dependencies]
-clap = { workspace = true }
-wae-dist = { workspace = true }
+wae-napi = { path = "../wae-napi" }
+wae-macros = { path = "../wae-macros" }
+wae-dist = { path = "../wae-dist", optional = true }
+wae-webview-win32 = { path = "../wae-webview-win32", optional = true }
