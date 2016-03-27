@@ -1,12 +1,12 @@
 /**
- * 脚手架用的轻量目录拷贝与占位符替换。
+ * Lightweight directory copy and placeholder rewrite for scaffolding.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 
 const TEXT_EXTS = new Set(['.json', '.ts', '.toml', '.md', '.html', '.yml', '.yaml']);
 
-/** 递归拷贝目录。 */
+/** Recursively copy a directory. */
 export function copyDir(from: string, to: string): void {
     fs.mkdirSync(to, { recursive: true });
     for (const entry of fs.readdirSync(from, { withFileTypes: true })) {
@@ -20,7 +20,7 @@ export function copyDir(from: string, to: string): void {
     }
 }
 
-/** 递归替换文本文件中的 `{{name}}`。 */
+/** Recursively replace `{{name}}` in text files. */
 export function rewritePlaceholders(dir: string, name: string): void {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
         const full = path.join(dir, entry.name);
@@ -36,7 +36,7 @@ export function rewritePlaceholders(dir: string, name: string): void {
     }
 }
 
-/** 删除路径（存在才删）。 */
+/** Remove a path if it exists. */
 export function removePath(target: string): void {
     fs.rmSync(target, { recursive: true, force: true });
 }

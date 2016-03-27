@@ -42,7 +42,7 @@ export class CliError extends Error {
     static from(err: unknown, fallbackCode = 'commander::action_failed'): CliError {
         if (err instanceof CliError) return err;
         const message = err instanceof Error ? err.message : String(err);
-        // 同时放 message 和 detail：不同产品 catalog 模板可能用 {message} 或 {detail}
+        // Put both message and detail so product catalogs may use either {message} or {detail}.
         return new CliError({ code: fallbackCode, exitCode: 1, cause: err, args: { detail: message, message } });
     }
 }
@@ -85,21 +85,21 @@ export type DiagnosticHandler = (diagnostic: CommandDiagnostic, context: Diagnos
  * from the raw name string. This config adds runtime constraints that cannot be expressed in the DSL.
  */
 export type OptionConfig = {
-    /** 默认值（不传时 options[key] = default） */
+    /** Default value when the flag is omitted (`options[key] = default`). */
     default?: string | boolean | string[];
-    /** 允许值集合；parse 时 strict 校验（失败 exit code 2） */
+    /** Allowed values; strict check at parse time (failure → exit code 2). */
     enum?: string[];
-    /** 是否必须（parse 时缺失 → CliError，exit code 2） */
+    /** Required; missing at parse time → CliError, exit code 2. */
     required?: boolean;
-    /** 自定义转换（parse 后对值执行，coerce 失败 → CliError.exitCode 2） */
+    /** Custom coercion after parse; failure → CliError.exitCode 2. */
     coerce?: (raw: string | boolean | string[]) => unknown;
-    /** 帮助文本中的简短示例（显示在 `--profile <name>` 后） */
+    /** Short example shown after the flag in help (e.g. after `--profile <name>`). */
     example?: string;
-    /** 选项分组（帮助里的 section header） */
+    /** Option group (help section header). */
     group?: string;
-    /** 标记 deprecated — 帮助里划线显示，调用时走 warn */
+    /** Deprecated — annotated in help; emits a warning when used. */
     deprecated?: boolean | string;
-    /** 标记 hidden — 不显示在帮助（但仍可解析） */
+    /** Hidden — omitted from help but still parseable. */
     hidden?: boolean;
 };
 
@@ -111,24 +111,24 @@ export type OptionConfig = {
  * DiagnosticHandler (or stderr fallback) so downstream code never needs ad-hoc `console.error`.
  */
 export type CommandContext = {
-    /** 完整命令路径（根命令在 [0]）— e.g. `['wae', 'new']` */
+    /** Full command path (root at `[0]`) — e.g. `['wae', 'new']`. */
     commandPath: string[];
-    /** 命令路径的人类可读串 — e.g. `'wae new'` */
+    /** Human-readable command path — e.g. `'wae new'`. */
     commandName: string;
-    /** 当前 locale id — e.g. `'en-US'` */
+    /** Active locale id — e.g. `'en-US'`. */
     locale: string;
-    /** 产品 LocalizePlugin.t — action 可以用它渲染 helpId / 错误 id */
+    /** Product `LocalizePlugin.t` — actions can render helpIds / error ids. */
     t: LocalizePlugin['t'];
-    /** 打印当前命令的帮助文本（框架级，从 command tree 自动派生） */
+    /** Print help for the current command (derived from the command tree). */
     help: () => void;
-    /** 写入 stderr（正常错误输出） */
+    /** Write to stderr. */
     stderr: (...msgs: string[]) => void;
-    /** 写入 stdout（正常进度 / 结果输出） */
+    /** Write to stdout. */
     stdout: (...msgs: string[]) => void;
-    /** 框架级 fail：走 onDiagnostic + 退出码 2（parse/validation 错误） */
+    /** Framework fail: routes through onDiagnostic and throws (exit path). */
     fail: (code: string, args?: Record<string, string>) => never;
-    /** 框架级 warn：走 onDiagnostic（warning severity，不退出） */
+    /** Framework warn: routes through onDiagnostic (warning, does not exit). */
     warn: (code: string, args?: Record<string, string>) => void;
-    /** 框架级 note：走 onDiagnostic（advice severity，不退出） */
+    /** Framework note: routes through onDiagnostic (advice, does not exit). */
     note: (code: string, args?: Record<string, string>) => void;
 };

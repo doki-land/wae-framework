@@ -1,35 +1,46 @@
 # `@wae/commander`
 
-面向 i18n 的 TypeScript CLI 框架。**不**绑定 `@wae/wae`。
+i18n-first TypeScript CLI framework under the `@wae` scope. **Not** bound to `@wae/wae`.
 
-- 流式注册；命令 / 选项第二参数是 **message id**
-- **帮助从命令树派生**，不要把 Usage 大段塞进语言包
-- **locales 目录加载**：`locales.json` + `<locale>/*.json` → flatten → `LocalizePlugin`
-- 框架 chrome / 错误 id 为 `commander.*`，自带极简英文 fallback（产品可覆盖）
-- 交互式帮助用小型 ANSI 主题；`NO_COLOR` 关闭，`FORCE_COLOR` 在非 TTY 下强制开启
-- **本包不含** 产品语言包
+- Fluent registration; command / option second args are **message ids**
+- **Help is derived** from the command tree — do not paste Usage walls into catalogs
+- **Locales directory loading**: `locales.json` + `<locale>/*.json` → flatten → `LocalizePlugin`
+- Framework chrome/err ids are `commander.*` with tiny English fallbacks (products may override)
+- Interactive help uses a small ANSI theme; `NO_COLOR` disables it, `FORCE_COLOR` enables it outside a TTY
+- **No product language packs** in this package
 
-## 快速开始
+## Quick start
 
 ```ts
 import { createCli } from '@wae/commander';
 
 const cli = createCli('my-cli')
-  .locales(new URL('./locales', import.meta.url).pathname)
+  .locales(new URL('./locales', import.meta.url).pathname) // or absolute path
   .intro('cli.intro')
   .command('build', 'cli.cmd.build')
   .option('--out-dir, -o <dir>', 'cli.opt.out-dir')
   .action(async (options) => {
-    /* options._ 为位置参数；options['out-dir'] … */
+    /* options._ positionals; options['out-dir'] … */
   });
 
 await cli.parse(process.argv);
 ```
 
-## 分层
+Locales layout (any product):
 
 ```text
-@wae/commander  = CLI 树 + locales 加载 + commander.* chrome
-@wae/wae        = 元工具 bin + 命令注册 + locales/ 内容
-下游应用         = 产品 bin + 命令注册 + locales/
+<localesRoot>/
+  locales.json          # { defaultLocale, locales: [{ id }], fallback? }
+  en-US/*.json          # flat or nested → dotted ids
+  zh-CN/*.json          # optional
+```
+
+`.locales(root)` also registers root `--locale <id>` (peeled before the command). Later `.use(plugin)` overrides the locales plugin.
+
+## Layering
+
+```text
+@wae/commander  = CLI tree + locales loader + commander.* chrome
+@wae/wae        = meta CLI bin + command registration + locales/ content
+Downstream apps = product bin + command registration + locales/
 ```

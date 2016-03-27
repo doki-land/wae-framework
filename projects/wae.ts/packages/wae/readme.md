@@ -1,8 +1,8 @@
 # `@wae/wae`
 
-WAE 元 CLI（唯一 bin：`wae`）。基于 `@wae/commander`，面向「Rust 能力 + 薄 N-API + TS 重组」的工具产品脚手架与分发。
+WAE meta CLI (sole bin: `wae`). Built on `@wae/commander` for scaffolding, building, staging native npm addons, and publishing.
 
-## 命令
+## Commands
 
 ```bash
 wae new <name> [--with-gui] [--out <dir>]
@@ -11,9 +11,9 @@ wae dist --project <dir> --package <name> --out <dir> --file <name>
 wae publish --dir <path> [--dir <path>...] [--execute]
 ```
 
-产品文案在本包 `locales/`；框架 chrome 由 `@wae/commander` 提供。
+Product strings live in this package's `locales/`. Framework chrome comes from `@wae/commander`.
 
-## 开发
+## Develop
 
 ```bash
 pnpm --filter @wae/wae build

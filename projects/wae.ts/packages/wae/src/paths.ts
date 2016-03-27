@@ -1,16 +1,16 @@
 /**
- * 元 CLI 路径解析（模板根、包根）。
+ * Meta CLI path helpers (package root, template root, locales).
  */
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-/** `@wae/wae` 包根（`dist/cli.js` 的上一级）。 */
+/** `@wae/wae` package root (parent of `dist/cli.js`). */
 export function packageRoot(from: string = import.meta.url): string {
     return fileURLToPath(new URL('..', from));
 }
 
 /**
- * monorepo 内 open-tools 模板目录。
+ * In-repo `open-tools` template directory.
  *
  * `packages/wae` → `../../templates/open-tools`
  */
@@ -18,7 +18,7 @@ export function openToolsTemplateRoot(from: string = import.meta.url): string {
     return path.join(packageRoot(from), '..', '..', 'templates', 'open-tools');
 }
 
-/** 本包 locales 目录。 */
+/** This package's `locales` directory. */
 export function localesRoot(from: string = import.meta.url): string {
     return path.join(packageRoot(from), 'locales');
 }

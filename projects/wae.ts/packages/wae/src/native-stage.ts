@@ -1,5 +1,5 @@
 /**
- * 原生 cdylib → npm 平台包暂存（对齐 Rust `wae-dist::stage_native`）。
+ * Stage a native cdylib into an npm platform package (mirrors Rust `wae-dist::stage_native`).
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -12,11 +12,11 @@ export type StageNativeRequest = {
     destFileName: string;
 };
 
-/** 在 projectRoot 执行 `cargo build -p … --release`。 */
+/** Run `cargo build -p … --release` in `projectRoot`. */
 export function cargoBuildRelease(projectRoot: string, cargoPackage: string): void {
     const cargoToml = path.join(projectRoot, 'Cargo.toml');
     if (!fs.existsSync(cargoToml)) {
-        throw new Error(`项目根缺少 Cargo.toml：${projectRoot}`);
+        throw new Error(`project root is missing Cargo.toml: ${projectRoot}`);
     }
     const result = spawnSync('cargo', ['build', '-p', cargoPackage, '--release'], {
         cwd: projectRoot,
@@ -24,11 +24,11 @@ export function cargoBuildRelease(projectRoot: string, cargoPackage: string): vo
         shell: process.platform === 'win32',
     });
     if (result.status !== 0) {
-        throw new Error(`在 ${projectRoot} 构建 -p ${cargoPackage} 失败（exit ${result.status ?? 'null'}）`);
+        throw new Error(`cargo build -p ${cargoPackage} failed in ${projectRoot} (exit ${result.status ?? 'null'})`);
     }
 }
 
-/** 在 `target/release` 下按包名 stem 查找 cdylib。 */
+/** Find a cdylib under `target/release` by package stem. */
 export function findCdylib(releaseDir: string, cargoPackage: string): string {
     const stem = cargoPackage.replaceAll('-', '_');
     const candidates = [
@@ -40,13 +40,13 @@ export function findCdylib(releaseDir: string, cargoPackage: string): string {
     for (const c of candidates) {
         if (fs.existsSync(c)) return c;
     }
-    throw new Error(`在 ${releaseDir} 下未找到包 \`${cargoPackage}\` 的原生产物（期望 stem=\`${stem}\`）`);
+    throw new Error(`no native artifact for package \`${cargoPackage}\` under ${releaseDir} (expected stem=\`${stem}\`)`);
 }
 
-/** 构建并把 cdylib 拷到平台包目录。 */
+/** Build and copy the cdylib into the platform package directory. */
 export function stageNative(req: StageNativeRequest): string {
-    if (!req.cargoPackage.trim()) throw new Error('cargo_package 不能为空');
-    if (!req.destFileName.trim()) throw new Error('dest_file_name 不能为空');
+    if (!req.cargoPackage.trim()) throw new Error('cargo_package must not be empty');
+    if (!req.destFileName.trim()) throw new Error('dest_file_name must not be empty');
     cargoBuildRelease(req.projectRoot, req.cargoPackage);
     const artifact = findCdylib(path.join(req.projectRoot, 'target', 'release'), req.cargoPackage);
     fs.mkdirSync(req.destDir, { recursive: true });

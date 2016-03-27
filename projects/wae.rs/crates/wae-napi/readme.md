@@ -13,4 +13,4 @@
 - 在 `napi_register_module_v1` 开头调用 [`setup`](src/lib.rs)
 - 用 [`Env`](src/lib.rs) / [`JsValue`](src/lib.rs) / [`register_exports`](src/lib.rs) / [`catch_callback`](src/lib.rs) 编写导出
 
-下游产品以 path 依赖本 crate 即可。
+下游产品优先依赖门面 crate `wae`（及 `#[wae::function]` / `register_module!`）。

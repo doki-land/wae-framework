@@ -432,7 +432,7 @@ class CliBuilder implements Cli {
             t,
         };
 
-        // `help <cmd> ...` 路由：把 help 后面的 token 当命令路径查找帮助
+        // `help <cmd> ...` routing: treat tokens after help as the command path
         if (argv.length && argv[0] === 'help') {
             const pathTokens = argv.slice(1);
             return this.routeHelp(pathTokens, t, diagnosticContext);
@@ -446,7 +446,7 @@ class CliBuilder implements Cli {
         const cmdToken = argv[0]!;
         const matched = this.roots.find((c) => c.def.names.includes(cmdToken));
         if (!matched) {
-            // 未知命令：加上 suggestion
+            // Unknown command: attach a suggestion when possible
             const names = this.roots.flatMap((r) => r.def.names);
             const suggest = closestMatch(cmdToken, names);
             this.emitDiagnostic(
@@ -464,7 +464,7 @@ class CliBuilder implements Cli {
         return await this.dispatch(matched.def, argv.slice(1), t, [cmdToken], globalOpts, diagnosticContext);
     }
 
-    /** 路由 `help <cmd> [subcmd] ...` 到对应命令的帮助文本。 */
+    /** Route `help <cmd> [subcmd] ...` to that command's help text. */
     private routeHelp(pathTokens: string[], t: LocalizePlugin['t'], _ctx: DiagnosticContext): number {
         if (!pathTokens.length) {
             console.log(this.formatRootHelp(t));
@@ -481,7 +481,7 @@ class CliBuilder implements Cli {
             pool = found.children;
         }
         if (!matched) {
-            // 路径里没有一个有效命令 → 仍显示根帮助
+            // No valid command in the path → still show root help
             console.log(this.formatRootHelp(t));
             return 0;
         }
@@ -507,10 +507,10 @@ class CliBuilder implements Cli {
             const msg = fromCatalog || businessMessage || code || String(diag);
             console.error(errorText(msg));
         }
-        // hint 和 suggestion 是框架级 UI，无论 handler 是否存在都统一追加
+        // Hints and suggestions are framework UI; always append even with a handler
         if (diag.code && HINT_CODES.has(diag.code)) {
-            // unknown_command: hint 指向根命令（因为命令不存在）
-            // 其他: hint 指向完整的可执行命令路径
+            // unknown_command: hint points at the root command (command does not exist)
+            // otherwise: hint points at the full executable command path
             const cmd = typeof diag.args?.cmd === 'string' ? diag.args.cmd.trim() : '';
             const hintTarget = diag.code === 'commander::unknown_command' || !cmd
                 ? this.name
@@ -578,7 +578,7 @@ class CliBuilder implements Cli {
             remaining.shift();
         }
 
-        // 扫描 --help / -h（只扫命令路径之后的 head，`--` 之后的 tail 不参与）
+        // Scan --help / -h (only head after the command path; tail after `--` is ignored)
         if (hasHelpToken(remaining)) {
             console.log(formatCommandHelp(this.name, target, t, targetPath, this.rootOptions));
             return 0;
@@ -807,8 +807,8 @@ function parseArgvCore(
     /** Options explicitly supplied on the command line (defaults are not "used"). */
     const used = new Set<OptionDef>();
 
-    // 裸 `-` 是 stdout/stdin 约定值，不是选项标记：`--out -` 与 `--out=-` 等价。
-    // `--out --other` / `--out -x` 仍按缺值处理，后续真实选项不会被吞成值。
+    // Bare `-` is a stdout/stdin sentinel, not an option marker: `--out -` equals `--out=-`.
+    // `--out --other` / `--out -x` still count as missing value; later flags are not swallowed.
     const isOptionToken = (token: string) => token.length > 1 && token.startsWith('-');
 
     const handleMissing = (flagName: string) => {
@@ -836,7 +836,7 @@ function parseArgvCore(
             else rest.push('--', ...argv.slice(i + 1));
             break;
         }
-        // help token 不在这里 skip：让它进 rest，由上层 dispatch 的 hasHelpToken 路由
+        // Do not skip help tokens here: leave them in rest for hasHelpToken in dispatch
         if (a.startsWith('--')) {
             const eq = a.indexOf('=');
             const long = eq === -1 ? a.slice(2) : a.slice(2, eq);
@@ -865,7 +865,7 @@ function parseArgvCore(
             }
             continue;
         }
-        // 短参数：-x 或 -xyz（多字符），只要不以 -- 开头且以 - 开头且长度 > 1 就认作短选项
+        // Short flags: -x or -xyz (multi-char); treat as short options when length > 1 and not --
         if (a.startsWith('-') && a.length > 1) {
             const short = a.slice(1);
             const def = byAlias.get(short);
@@ -981,7 +981,7 @@ function normalizeDiagnostic(error: unknown): CommandDiagnostic {
         }
     }
     const text = error instanceof Error ? error.message : String(error);
-    // 同时放 message 和 detail：不同产品 catalog 模板可能用 {message} 或 {detail}
+    // Put both message and detail so product catalogs may use either {message} or {detail}
     return { severity: 'error', code: 'commander::action_failed', args: { message: text, detail: text }, message: text };
 }
 
@@ -1074,7 +1074,7 @@ function assignOption(
     out[def.key] = value;
 }
 
-/** 扫描 argv 是否包含 help token（跳过 -- 后面的内容）。 */
+/** Whether argv contains a help token (ignore everything after --). */
 function hasHelpToken(argv: string[]): boolean {
     for (const tok of argv) {
         if (tok === '--') return false;
@@ -1084,8 +1084,8 @@ function hasHelpToken(argv: string[]): boolean {
 }
 
 /**
- * 简单 Levenshtein 距离：找最接近的候选字符串。
- * 返回值是建议的命令名（可能有多个用逗号连接），找不到返回空字符串。
+ * Simple Levenshtein nearest-match among candidates.
+ * Returns a suggested command name, or an empty string when nothing is close enough.
  */
 function closestMatch(input: string, candidates: string[]): string {
     if (!input || !candidates.length) return '';
@@ -1093,7 +1093,7 @@ function closestMatch(input: string, candidates: string[]): string {
     let best: { name: string; dist: number }[] = [];
     for (const c of candidates) {
         const d = levenshtein(lower, c.toLowerCase());
-        // 只接受距离 ≤ 3 且不超过输入长度 60% 的候选，避免把完全不相关的命令也建议出来
+        // Accept only distance <= 3 and at most ~60% of input length to avoid unrelated suggestions
         const threshold = Math.max(2, Math.floor(input.length * 0.6) + 1);
         if (d <= threshold) {
             best.push({ name: c, dist: d });
@@ -1101,7 +1101,7 @@ function closestMatch(input: string, candidates: string[]): string {
     }
     if (!best.length) return '';
     best.sort((a, b) => a.dist - b.dist);
-    // 只返回 top 1：多候选用逗号分隔看起来像一个命令
+    // Return only the top-1 match; comma-joining multiple candidates looks like one command
     return best[0]!.name;
 }
 
@@ -1110,7 +1110,7 @@ function levenshtein(a: string, b: string): number {
     const n = b.length;
     if (m === 0) return n;
     if (n === 0) return m;
-    // 只维护两行，节省内存
+    // Keep only two rows to save memory
     let prev = new Array<number>(n + 1);
     let curr = new Array<number>(n + 1);
     for (let j = 0; j <= n; j++) prev[j] = j;

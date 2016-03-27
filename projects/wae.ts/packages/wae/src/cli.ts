@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * `@wae/wae` 元 CLI：脚手架 / 构建 / 原生暂存 / npm publish。
+ * `@wae/wae` meta CLI: scaffold / build / stage native addons / npm publish.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -11,7 +11,7 @@ import { copyDir, removePath, rewritePlaceholders } from './fs-utils.js';
 import { cargoBuildRelease, stageNative } from './native-stage.js';
 import { localesRoot, openToolsTemplateRoot } from './paths.js';
 
-/** 组装产品 CLI（测试可直接调用）。 */
+/** Build the product CLI (tests may call this directly). */
 export function buildCli() {
     const cli = createCli('wae').locales(localesRoot()).intro('cli.intro');
 
@@ -43,19 +43,19 @@ export function buildCli() {
 async function cmdNew(options: ParsedOptions, args: string[]): Promise<number> {
     const name = args[0]?.trim();
     if (!name) {
-        console.error('wae new 需要项目名：wae new <name> [--with-gui] [--out <dir>]');
+        console.error('wae new requires a name: wae new <name> [--with-gui] [--out <dir>]');
         return 2;
     }
     const outDir = typeof options.out === 'string' ? options.out : '.';
     const withGui = Boolean(options['with-gui']);
     const template = openToolsTemplateRoot();
     if (!fs.existsSync(template)) {
-        console.error(`找不到模板目录：${template}`);
+        console.error(`template directory not found: ${template}`);
         return 1;
     }
     const dest = path.resolve(outDir, name);
     if (fs.existsSync(dest)) {
-        console.error(`目标已存在：${dest}`);
+        console.error(`destination already exists: ${dest}`);
         return 1;
     }
     copyDir(template, dest);
@@ -64,7 +64,7 @@ async function cmdNew(options: ParsedOptions, args: string[]): Promise<number> {
         removePath(path.join(dest, 'gui'));
         removePath(path.join(dest, 'dist', 'gui'));
     }
-    console.log(`已创建 ${dest}（with_gui=${withGui}）`);
+    console.log(`created ${dest} (with_gui=${withGui})`);
     return 0;
 }
 
@@ -74,10 +74,10 @@ async function cmdBuild(options: ParsedOptions): Promise<number> {
     try {
         const root = path.resolve(project);
         cargoBuildRelease(root, pkg);
-        console.log(`已在 ${root} 构建 -p ${pkg}`);
+        console.log(`built -p ${pkg} in ${root}`);
         return 0;
     } catch (err) {
-        console.error(`wae build 失败：${err instanceof Error ? err.message : err}`);
+        console.error(`wae build failed: ${err instanceof Error ? err.message : err}`);
         return 1;
     }
 }
@@ -90,10 +90,10 @@ async function cmdDist(options: ParsedOptions): Promise<number> {
             destDir: path.resolve(String(options.out)),
             destFileName: String(options.file),
         });
-        console.log(`已暂存 → ${dest}`);
+        console.log(`staged → ${dest}`);
         return 0;
     } catch (err) {
-        console.error(`wae dist 失败：${err instanceof Error ? err.message : err}`);
+        console.error(`wae dist failed: ${err instanceof Error ? err.message : err}`);
         return 1;
     }
 }
@@ -102,14 +102,14 @@ async function cmdPublish(options: ParsedOptions): Promise<number> {
     const raw = options.dir;
     const dirs = Array.isArray(raw) ? raw : typeof raw === 'string' ? [raw] : [];
     if (!dirs.length) {
-        console.error('请至少提供一个 --dir');
+        console.error('provide at least one --dir');
         return 2;
     }
     const execute = Boolean(options.execute);
     for (const d of dirs) {
         const pack = path.resolve(d);
         if (!fs.existsSync(path.join(pack, 'package.json'))) {
-            console.error(`--dir 缺少 package.json：${pack}`);
+            console.error(`--dir is missing package.json: ${pack}`);
             return 1;
         }
         const args = ['publish', '--access', 'public'];
@@ -120,7 +120,7 @@ async function cmdPublish(options: ParsedOptions): Promise<number> {
             shell: process.platform === 'win32',
         });
         if (result.status !== 0) {
-            console.error(`npm publish 失败：${pack}`);
+            console.error(`npm publish failed: ${pack}`);
             return 1;
         }
     }

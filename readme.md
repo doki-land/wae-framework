@@ -4,7 +4,7 @@
 
 - **元 CLI**：TypeScript 包 `@wae/wae`（唯一 bin：`wae`）
 - **应用 CLI 框架**：`@wae/commander`（i18n-first 命令树）
-- **Rust 库**：薄 N-API / Win32 WebView2 / 可选 dist 辅助（**无** Rust 产品 bin）
+- **Rust 库**：门面 `wae` + 宏 `wae-macros` + 薄 N-API / Win32 WebView2 / dist（**无** Rust 产品 bin）
 
 ```text
 projects/wae.ts/packages/
@@ -13,12 +13,16 @@ projects/wae.ts/packages/
 projects/wae.ts/templates/
   open-tools          # wae new 模板（commander + locales）
 projects/wae.rs/crates/
+  wae                 # Rust 门面库（re-export + #[function] / register_module!）
+  wae-macros          # 过程宏
   wae-napi            # 自研薄 Node-API（dyn-symbols，无 napi-rs）
-  wae-webview-win32   # 自研 WebView2 宿主（pumpEvents）
-  wae-dist            # 通用 cdylib → 平台包暂存（Rust 库；TS dist 已有同构实现）
+  wae-webview-win32   # 自研 WebView2 宿主（pumpEvents）→ wae::webview
+  wae-dist            # 通用 cdylib → 平台包暂存 → wae::dist
 ```
 
 本仓 **不**内嵌或默认指向任何下游产品仓库；产品通过 path / 版本依赖上述包与 crate。
+
+语言约定见 [`AGENTS.md`](./AGENTS.md)：npm `@wae/*` 与模板用英文，Cargo 文档用中文。
 
 ## 检查
 

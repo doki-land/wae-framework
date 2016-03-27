@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * 产品 CLI 骨架：命令树 + locales 由 `@wae/commander` 驱动。
- * 生成后把 `hello` 换成真实业务命令即可。
+ * Product CLI skeleton: command tree + locales via `@wae/commander`.
+ * After scaffolding, replace `hello` with real commands.
  */
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

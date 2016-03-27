@@ -2,7 +2,7 @@
     "name": "@wae/commander",
     "version": "0.1.0",
     "type": "module",
-    "description": "i18n-first TypeScript CLI 框架（命令树、locales 加载、commander.* chrome）",
+    "description": "i18n-first TypeScript CLI framework (command tree, locales loading, commander.* chrome)",
     "license": "MIT",
     "repository": {
         "type": "git",

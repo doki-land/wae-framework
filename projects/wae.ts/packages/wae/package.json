@@ -2,7 +2,7 @@
     "name": "@wae/wae",
     "version": "0.1.0",
     "type": "module",
-    "description": "WAE 元 CLI：脚手架、构建与分发原生 npm 工具",
+    "description": "WAE meta CLI: scaffold, build, stage native npm addons, and publish",
     "license": "MIT",
     "repository": {
         "type": "git",

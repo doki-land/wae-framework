@@ -12,7 +12,7 @@ use syn::{Expr, ExprLit, FnArg, ItemFn, Lit, Meta, MetaNameValue, Token, parse::
 ///
 /// 展开后额外生成：
 /// - `wae_napi_export_<name>`：C ABI 回调
-/// - `WAE_NAPI_EXPORT_<name>`：`(js_name, 回调)` 常量，供 [`register_module`] 使用
+/// - `WAE_NAPI_EXPORT_<NAME>`：`(js_name, 回调)` 常量，供 [`register_module`] 使用
 #[proc_macro_attribute]
 pub fn function(attr: TokenStream, item: TokenStream) -> TokenStream {
     let args = match parse_attribute_args(attr) {

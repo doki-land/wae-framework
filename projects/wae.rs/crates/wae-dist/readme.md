@@ -1,16 +1,7 @@
 # `wae-dist`
 
-原生 npm 平台包暂存辅助库：在任意产品 Cargo 工作区中 `cargo build -p <package> --release`，再把 cdylib 拷贝到调用方指定的平台包目录与文件名。
+通用辅助：在产品工作区 `cargo build -p <package> --release`，并把 cdylib 拷到 npm 平台包目录。
 
-本 crate **不知道**任何下游产品名字；产品布局、包名与产物文件名全部由 [`StageNative`](src/lib.rs) 参数提供。
+不绑定具体下游产品；调用方自行提供 Cargo 包名、产物目录与目标文件名。
 
-```rust
-use wae_dist::{StageNative, stage_native};
-
-stage_native(&StageNative {
-    project_root: "...".into(),
-    cargo_package: "my-tool-napi".into(),
-    dest_dir: ".../my-tool-win32-x64".into(),
-    dest_file_name: "my-tool.win32-x64.node".into(),
-})?;
-```
+经门面 feature `dist` 时以 `wae::dist` 导出。TypeScript 元 CLI `@wae/wae` 的 `dist` 命令有同构实现。
