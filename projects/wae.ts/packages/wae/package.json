@@ -10,7 +10,7 @@
         "directory": "projects/wae.ts/packages/wae"
     },
     "bin": {
-        "wae": "./dist/cli.js"
+        "wae": "dist/cli.js"
     },
     "main": "./dist/cli.js",
     "types": "./dist/cli.d.ts",

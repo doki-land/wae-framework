@@ -19,6 +19,13 @@ Cargo.lock
 node_modules/
 pnpm-lock.yaml
 
+# Local npm 2FA (never commit)
+.env.placeholder.local
+.env*.local
+
+# Nifty local cache
+.cache/
+
 # Local path overrides
 .cargo/config.toml
 
