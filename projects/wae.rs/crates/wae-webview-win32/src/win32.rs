@@ -31,7 +31,7 @@ use windows::{
     core::{Interface, PCWSTR, w},
 };
 
-use crate::{IpcHandler, IpcOutcome, OpenOptions, Result, WebViewError};
+use wae_webview::{IpcHandler, IpcOutcome, OpenOptions, Result, WebViewBackend, WebViewError};
 
 type EventRegistrationToken = i64;
 
@@ -248,13 +248,16 @@ fn strip_extended_path(path: &Path) -> String {
     s
 }
 
-pub struct HostInner {
+/// Win32 + WebView2 后端。
+pub struct Win32Backend {
     state: Box<DesktopState>,
     quit: bool,
 }
 
-impl HostInner {
-    pub fn open(options: OpenOptions, handler: Box<dyn IpcHandler>) -> Result<Self> {
+impl WebViewBackend for Win32Backend {
+    const NAME: &'static str = "win32";
+
+    fn open(options: OpenOptions, handler: Box<dyn IpcHandler>) -> Result<Self> {
         unsafe {
             let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
 
@@ -313,7 +316,7 @@ impl HostInner {
         }
     }
 
-    pub fn pump(&mut self) -> bool {
+    fn pump(&mut self) -> bool {
         if self.quit || !self.state.alive {
             self.quit = true;
             return false;
@@ -360,7 +363,7 @@ impl HostInner {
         self.state.alive && !self.quit
     }
 
-    pub fn close(&mut self) -> Result<()> {
+    fn close(&mut self) -> Result<()> {
         if !self.state.alive {
             return Ok(());
         }
@@ -372,11 +375,11 @@ impl HostInner {
         Ok(())
     }
 
-    pub fn post_message(&self, json: &str) -> Result<()> {
+    fn post_message(&self, json: &str) -> Result<()> {
         self.state.post_message(json)
     }
 
-    pub fn is_alive(&self) -> bool {
+    fn is_alive(&self) -> bool {
         self.state.alive && !self.quit
     }
 }

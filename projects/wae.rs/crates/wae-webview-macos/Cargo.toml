@@ -1,0 +1,13 @@
+[package]
+name = "wae-webview-macos"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+readme = "readme.md"
+description = "macOS WKWebView 后端"
+publish = false
+
+[dependencies]
+wae-webview = { path = "../wae-webview" }

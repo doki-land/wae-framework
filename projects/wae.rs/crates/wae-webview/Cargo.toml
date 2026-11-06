@@ -1,0 +1,12 @@
+[package]
+name = "wae-webview"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+readme = "readme.md"
+description = "WAE WebView 后端合同：平台无关类型、后端 trait 与泛型宿主"
+publish = false
+
+[dependencies]

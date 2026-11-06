@@ -4,14 +4,20 @@ members = [
     "projects/wae.rs/crates/wae",
     "projects/wae.rs/crates/wae-macros",
     "projects/wae.rs/crates/wae-napi",
+    "projects/wae.rs/crates/wae-webview",
     "projects/wae.rs/crates/wae-webview-win32",
+    "projects/wae.rs/crates/wae-webview-macos",
+    "projects/wae.rs/crates/wae-webview-linux",
     "projects/wae.rs/crates/wae-dist",
 ]
 default-members = [
     "projects/wae.rs/crates/wae",
     "projects/wae.rs/crates/wae-macros",
     "projects/wae.rs/crates/wae-napi",
+    "projects/wae.rs/crates/wae-webview",
     "projects/wae.rs/crates/wae-webview-win32",
+    "projects/wae.rs/crates/wae-webview-macos",
+    "projects/wae.rs/crates/wae-webview-linux",
     "projects/wae.rs/crates/wae-dist",
 ]
 

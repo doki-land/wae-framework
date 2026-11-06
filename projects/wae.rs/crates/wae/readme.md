@@ -6,7 +6,7 @@ WAE Rust **门面库**（不是 CLI bin）。统一导出：
 |------|------|
 | `wae-napi` | 薄 Node-API |
 | `wae-macros` | `#[function]` / `register_module!` |
-| `wae::webview`（feature `webview`，默认开） | Win32 WebView2 |
+| `wae::webview`（feature `webview`，默认开） | 按目标平台选择：Windows Win32 WebView2 / macOS WKWebView / Linux WebKitGTK |
 | `wae::dist`（feature `dist`，默认开） | cdylib 暂存 |
 
 ## 用法

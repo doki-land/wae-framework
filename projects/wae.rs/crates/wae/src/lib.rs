@@ -30,8 +30,26 @@ pub mod dist {
     pub use wae_dist::*;
 }
 
-/// `wae-webview-win32`（feature `webview`，默认开启）。
+/// `wae::webview`：按编译目标选择 WebView 后端（feature `webview`，默认开启）。
+///
+/// Windows → `wae-webview-win32`，macOS → `wae-webview-macos`，
+/// Linux → `wae-webview-linux`。其它目标在编译期显式失败。
 #[cfg(feature = "webview")]
 pub mod webview {
-    pub use wae_webview_win32::*;
+    pub use wae_webview::{IpcHandler, IpcOutcome, OpenOptions, Result, WebViewError};
+
+    /// 当前目标的 WebView 宿主（Windows：Win32 + WebView2）。
+    #[cfg(target_os = "windows")]
+    pub type WebViewHost = wae_webview::WebViewHost<wae_webview_win32::Win32Backend>;
+
+    /// 当前目标的 WebView 宿主（macOS：WKWebView）。
+    #[cfg(target_os = "macos")]
+    pub type WebViewHost = wae_webview::WebViewHost<wae_webview_macos::MacosBackend>;
+
+    /// 当前目标的 WebView 宿主（Linux：WebKitGTK）。
+    #[cfg(target_os = "linux")]
+    pub type WebViewHost = wae_webview::WebViewHost<wae_webview_linux::LinuxBackend>;
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    compile_error!("`wae::webview` 只支持 Windows / macOS / Linux；其它目标没有 WebView 后端");
 }
