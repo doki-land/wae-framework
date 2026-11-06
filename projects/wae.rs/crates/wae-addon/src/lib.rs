@@ -14,9 +14,7 @@ use wae::{
 
 mod packaging;
 
-use packaging::{
-    WAE_NAPI_EXPORT_FIND_ARTIFACT, WAE_NAPI_EXPORT_STAGE_ARTIFACT, WAE_NAPI_EXPORT_VALIDATE_PLATFORM_PACKAGE,
-};
+use packaging::{WAE_NAPI_EXPORT_FIND_ARTIFACT, WAE_NAPI_EXPORT_STAGE_ARTIFACT, WAE_NAPI_EXPORT_VALIDATE_PLATFORM_PACKAGE};
 
 /// 原子分发能力的 JS 导出名，供 `capabilities()` 自检。
 const ATOMIC_CAPABILITIES: [&str; 3] = ["findArtifact", "stageArtifact", "validatePlatformPackage"];
@@ -52,15 +50,13 @@ fn capabilities(ctx: CallContext) -> Result<JsValue> {
 /// 最小能力探针；调用经 `wae-audit` 记录，供加载冒烟与审计接线验证。
 #[function(js_name = "probe")]
 fn probe(ctx: CallContext) -> Result<JsValue> {
-    napi_call(auditor(), "wae.native.probe", Mode::Execute)
-        .targets(0, "native addon probe")
-        .run(|| {
-            let report = ctx.env().object()?;
-            report.set_named("ok", ctx.env().boolean(true)?)?;
-            report.set_named("platform", ctx.env().string(consts::OS)?)?;
-            report.set_named("arch", ctx.env().string(consts::ARCH)?)?;
-            Ok(report)
-        })
+    napi_call(auditor(), "wae.native.probe", Mode::Execute).targets(0, "native addon probe").run(|| {
+        let report = ctx.env().object()?;
+        report.set_named("ok", ctx.env().boolean(true)?)?;
+        report.set_named("platform", ctx.env().string(consts::OS)?)?;
+        report.set_named("arch", ctx.env().string(consts::ARCH)?)?;
+        Ok(report)
+    })
 }
 
 /// 查询审计记录，返回 JSON 数组文本。

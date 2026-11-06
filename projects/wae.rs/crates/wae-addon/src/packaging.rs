@@ -20,6 +20,9 @@ const INVALID_ARGUMENT: &str = "invalid_argument";
 /// 文件系统操作失败。
 const IO_ERROR: &str = "io_error";
 
+/// 平台包校验结果：`(name, version, os, cpu, files, main)`。
+type PlatformPackage = (String, String, Vec<String>, Vec<String>, Vec<String>, String);
+
 struct OpError {
     code: &'static str,
     message: String,
@@ -47,11 +50,8 @@ fn fail(ctx: &CallContext, error: OpError) -> Result<JsValue> {
 }
 
 fn required_string(ctx: &CallContext, name: &str) -> std::result::Result<String, OpError> {
-    let spec = ctx
-        .arg(0)
-        .map_err(|err| OpError::new(INVALID_ARGUMENT, format!("缺少参数对象：{err}")))?;
-    let value = wae::optional_string_prop(spec, name)
-        .map_err(|err| OpError::new(INVALID_ARGUMENT, format!("读取 `{name}` 失败：{err}")))?;
+    let spec = ctx.arg(0).map_err(|err| OpError::new(INVALID_ARGUMENT, format!("缺少参数对象：{err}")))?;
+    let value = wae::optional_string_prop(spec, name).map_err(|err| OpError::new(INVALID_ARGUMENT, format!("读取 `{name}` 失败：{err}")))?;
     match value {
         Some(text) if !text.trim().is_empty() => Ok(text),
         _ => Err(OpError::new(INVALID_ARGUMENT, format!("`{name}` 必须是非空字符串"))),
@@ -72,9 +72,8 @@ pub(crate) fn find_artifact(ctx: CallContext) -> Result<JsValue> {
     let outcome = (|| -> std::result::Result<String, OpError> {
         let release_dir = required_string(&ctx, "releaseDir")?;
         let package = required_string(&ctx, "package")?;
-        let artifact = wae_dist::find_cdylib(Path::new(&release_dir), &package).map_err(|err| {
-            OpError::new(ARTIFACT_MISSING, format!("在 `{release_dir}` 下未找到包 `{package}` 的原生产物：{err}"))
-        })?;
+        let artifact = wae_dist::find_cdylib(Path::new(&release_dir), &package)
+            .map_err(|err| OpError::new(ARTIFACT_MISSING, format!("在 `{release_dir}` 下未找到包 `{package}` 的原生产物：{err}")))?;
         Ok(artifact.display().to_string())
     })();
 
@@ -102,8 +101,7 @@ pub(crate) fn stage_artifact(ctx: CallContext) -> Result<JsValue> {
         if !source.is_file() {
             return Err(OpError::new(ARTIFACT_MISSING, format!("产物不存在：{artifact}")));
         }
-        fs::create_dir_all(&dest_dir)
-            .map_err(|err| OpError::new(IO_ERROR, format!("无法创建 `{dest_dir}`：{err}")))?;
+        fs::create_dir_all(&dest_dir).map_err(|err| OpError::new(IO_ERROR, format!("无法创建 `{dest_dir}`：{err}")))?;
         let dest = Path::new(&dest_dir).join(&file_name);
         fs::copy(&source, &dest).map_err(|err| OpError::new(IO_ERROR, format!("复制到 `{}` 失败：{err}", dest.display())))?;
         Ok(dest.display().to_string())
@@ -146,15 +144,13 @@ fn is_metadata_entry(entry: &str) -> bool {
 /// 返回 `{ ok, value: { name, version, os, cpu, files, main } }`。
 #[function(js_name = "validatePlatformPackage")]
 pub(crate) fn validate_platform_package(ctx: CallContext) -> Result<JsValue> {
-    let outcome = (|| -> std::result::Result<(String, String, Vec<String>, Vec<String>, Vec<String>, String), OpError> {
+    let outcome = (|| -> std::result::Result<PlatformPackage, OpError> {
         let dir = required_string(&ctx, "dir")?;
         let manifest_path = Path::new(&dir).join("package.json");
-        let text = fs::read_to_string(&manifest_path).map_err(|err| {
-            OpError::new(PLATFORM_PACKAGE_INVALID, format!("无法读取 {}：{err}", manifest_path.display()))
-        })?;
-        let manifest: Value = serde_json::from_str(&text).map_err(|err| {
-            OpError::new(PLATFORM_PACKAGE_INVALID, format!("{} 不是合法 JSON：{err}", manifest_path.display()))
-        })?;
+        let text = fs::read_to_string(&manifest_path)
+            .map_err(|err| OpError::new(PLATFORM_PACKAGE_INVALID, format!("无法读取 {}：{err}", manifest_path.display())))?;
+        let manifest: Value = serde_json::from_str(&text)
+            .map_err(|err| OpError::new(PLATFORM_PACKAGE_INVALID, format!("{} 不是合法 JSON：{err}", manifest_path.display())))?;
 
         let name = string_field(&manifest, "name");
         let version = string_field(&manifest, "version");
@@ -162,10 +158,7 @@ pub(crate) fn validate_platform_package(ctx: CallContext) -> Result<JsValue> {
             return Err(OpError::new(PLATFORM_PACKAGE_INVALID, format!("{} 缺少 name", manifest_path.display())));
         }
         if !is_exact_version(&version) {
-            return Err(OpError::new(
-                PLATFORM_PACKAGE_INVALID,
-                format!("`{name}` 的 version 必须是精确 X.Y.Z，实际为 `{version}`"),
-            ));
+            return Err(OpError::new(PLATFORM_PACKAGE_INVALID, format!("`{name}` 的 version 必须是精确 X.Y.Z，实际为 `{version}`")));
         }
 
         let os = string_array_field(&manifest, "os");
@@ -183,10 +176,7 @@ pub(crate) fn validate_platform_package(ctx: CallContext) -> Result<JsValue> {
         }
         for entry in &files {
             if !entry.ends_with(".node") && !is_metadata_entry(entry) {
-                return Err(OpError::new(
-                    PLATFORM_PACKAGE_INVALID,
-                    format!("`{name}` 的 files 条目 `{entry}` 既不是原生产物也不是包元数据"),
-                ));
+                return Err(OpError::new(PLATFORM_PACKAGE_INVALID, format!("`{name}` 的 files 条目 `{entry}` 既不是原生产物也不是包元数据")));
             }
         }
 
