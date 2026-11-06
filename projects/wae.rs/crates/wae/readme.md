@@ -35,3 +35,11 @@ register_module![version, open_gui];
 ```
 
 产品命令行请用 `@wae/wae` / `@wae/commander`。
+
+## 跨平台约束
+
+`wae::webview` 在 Windows / macOS / Linux 暴露同一组符号与签名。下游应用（含 `napi` 层）
+不得写平台 `cfg`，也不得用字符串表达「仅 Windows 支持」；平台缺少能力时使用
+`WebViewError::Unsupported { capability, platform }` 结构化判别。
+详见工作区 `AGENTS.md` 索引中的 WAE 设计文档。
+

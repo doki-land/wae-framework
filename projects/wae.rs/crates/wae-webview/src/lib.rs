@@ -87,19 +87,78 @@ pub trait IpcHandler: Send {
     fn on_ipc(&mut self, message: &str) -> IpcOutcome;
 }
 
+/// WebView 能力面；用于结构化表达「某平台缺少某项能力」。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Capability {
+    /// 创建/显示原生窗口。
+    Window,
+    /// `content_dir` 或 `url` 内容加载。
+    ContentLoad,
+    /// 宿主 ↔ 页面消息通道。
+    MessageChannel,
+    /// 外部驱动的非阻塞事件泵。
+    EventPump,
+    /// 关闭窗口。
+    Close,
+}
+
+/// 编译目标平台。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Platform {
+    /// Windows。
+    Windows,
+    /// macOS。
+    Macos,
+    /// Linux。
+    Linux,
+}
+
 /// 打开或驱动 WebView 宿主时的失败。
-#[derive(Debug)]
+///
+/// 平台缺少能力时必须用 [`WebViewError::Unsupported`]（携带 [`Capability`] 与
+/// [`Platform`]），由调用方按结构化字段判别与本地化；不得用字符串表达平台不支持。
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WebViewError {
-    /// 当前目标平台不支持该能力。
-    Unsupported(&'static str),
+    /// 当前平台不具备该能力。
+    Unsupported {
+        /// 缺少的能力。
+        capability: Capability,
+        /// 编译目标平台。
+        platform: Platform,
+    },
     /// 带说明文本的运行时失败。
     Message(String),
+}
+
+impl WebViewError {
+    /// 构造结构化的「平台缺少能力」错误。
+    pub fn unsupported(capability: Capability, platform: Platform) -> Self {
+        Self::Unsupported { capability, platform }
+    }
+
+    /// 若为 [`WebViewError::Unsupported`]，返回缺少的能力。
+    pub fn capability(&self) -> Option<Capability> {
+        match self {
+            Self::Unsupported { capability, .. } => Some(*capability),
+            Self::Message(_) => None,
+        }
+    }
+
+    /// 若为 [`WebViewError::Unsupported`]，返回对应平台。
+    pub fn platform(&self) -> Option<Platform> {
+        match self {
+            Self::Unsupported { platform, .. } => Some(*platform),
+            Self::Message(_) => None,
+        }
+    }
 }
 
 impl fmt::Display for WebViewError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Unsupported(msg) => f.write_str(msg),
+            Self::Unsupported { capability, platform } => {
+                write!(f, "capability {capability:?} is not supported on platform {platform:?}")
+            }
             Self::Message(msg) => f.write_str(msg),
         }
     }
@@ -208,5 +267,24 @@ mod tests {
         assert_eq!(page_receive_script("a\\b"), "if (window.__waeReceive) window.__waeReceive(\"a\\\\b\");");
         assert!(page_receive_script("\u{2028}").contains("\\u2028"));
         assert!(page_receive_script("\u{1}").contains("\\u0001"));
+    }
+
+    #[test]
+    fn unsupported_error_carries_capability_and_platform() {
+        let error = WebViewError::unsupported(Capability::EventPump, Platform::Linux);
+        assert_eq!(error.capability(), Some(Capability::EventPump));
+        assert_eq!(error.platform(), Some(Platform::Linux));
+        match &error {
+            WebViewError::Unsupported { capability, platform } => {
+                assert_eq!(*capability, Capability::EventPump);
+                assert_eq!(*platform, Platform::Linux);
+            }
+            WebViewError::Message(message) => panic!("unexpected message error: {message}"),
+        }
+        assert!(error.to_string().contains("EventPump"));
+
+        let runtime = WebViewError::Message("boom".into());
+        assert_eq!(runtime.capability(), None);
+        assert_eq!(runtime.platform(), None);
     }
 }

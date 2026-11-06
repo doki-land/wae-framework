@@ -34,9 +34,44 @@ pub mod dist {
 ///
 /// Windows → `wae-webview-win32`，macOS → `wae-webview-macos`，
 /// Linux → `wae-webview-linux`。其它目标在编译期显式失败。
+///
+/// # 下游约束（强制）
+///
+/// 本模块在三个桌面平台暴露**同一组符号与签名**。下游应用（含 `napi` 层与
+/// `@wae/*` 消费者）**不得**写 `#[cfg(windows)]` / `cfg!(windows)` 之类的平台判断，
+/// 也不得用字符串表达「仅 Windows 支持」。平台差异只在两处出现：后端 crate 内部，
+/// 以及本模块的后端选择层。平台缺少能力时由门面返回
+/// [`WebViewError::Unsupported`]（携带 [`Capability`] 与 [`Platform`]），下游按字段判别。
+///
+/// ```ignore
+/// #[function(js_name = "openGui")]
+/// fn open_gui(ctx: CallContext) -> Result<JsValue> {
+///     // 一行转发即可在 Windows / macOS / Linux 编译
+///     let host = wae::webview::open(options, Box::new(handler))?;
+///     // ...
+/// }
+/// ```
 #[cfg(feature = "webview")]
 pub mod webview {
-    pub use wae_webview::{IpcHandler, IpcOutcome, OpenOptions, Result, WebViewError};
+    pub use wae_webview::{Capability, IpcHandler, IpcOutcome, OpenOptions, Platform, Result, WebViewError};
+
+    /// 当前编译目标对应的平台，供结构化错误与诊断使用。
+    pub fn current_platform() -> Platform {
+        if cfg!(target_os = "windows") {
+            Platform::Windows
+        }
+        else if cfg!(target_os = "macos") {
+            Platform::Macos
+        }
+        else {
+            Platform::Linux
+        }
+    }
+
+    /// 打开 WebView 宿主；与 `WebViewHost::open` 等价，供应用侧一行转发。
+    pub fn open(options: OpenOptions, handler: Box<dyn IpcHandler>) -> Result<WebViewHost> {
+        WebViewHost::open(options, handler)
+    }
 
     /// 当前目标的 WebView 宿主（Windows：Win32 + WebView2）。
     #[cfg(target_os = "windows")]
