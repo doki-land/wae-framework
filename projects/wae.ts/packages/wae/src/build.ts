@@ -623,17 +623,22 @@ function firstString(...values: unknown[]): string | undefined {
 }
 
 function runPnpm(root: string, args: string[]): void {
-    const result = spawnSync('pnpm', args, {
-        cwd: root,
-        stdio: 'inherit',
-        shell: process.platform === 'win32',
-    });
+    // Windows resolves `pnpm` through a `.cmd` shim, which needs a shell. Pass a
+    // single command string so Node never concatenates an argument array.
+    const command = process.platform === 'win32' ? ['pnpm', ...args.map(shellQuote)].join(' ') : 'pnpm';
+    const result = process.platform === 'win32'
+        ? spawnSync(command, { cwd: root, stdio: 'inherit', shell: true })
+        : spawnSync(command, args, { cwd: root, stdio: 'inherit' });
     if (result.status !== 0) {
         throw new WaeBuildError(
             BUILD_CODES.stepFailed,
             `pnpm ${args.join(' ')} failed in ${root} (exit ${result.status ?? 'null'})`,
         );
     }
+}
+
+function shellQuote(value: string): string {
+    return /^[A-Za-z0-9@/:._-]+$/.test(value) ? value : `"${value.replace(/"/g, '\\"')}"`;
 }
 
 function copyTree(from: string, to: string, ignore: string[]): void {

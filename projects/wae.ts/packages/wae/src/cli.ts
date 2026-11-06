@@ -610,11 +610,11 @@ async function cmdPublish(options: ParsedOptions): Promise<number> {
     console.log(`publishing ${version} as the 0.0.0 placeholder stub (Trusted Publisher setup only)`);
     const args = ['publish', '--access', 'public'];
     for (const manifest of manifests) {
-        const result = spawnSync('npm', args, {
-            cwd: manifest.dir,
-            stdio: 'inherit',
-            shell: process.platform === 'win32',
-        });
+        // `npm` is a `.cmd` shim on Windows, so it needs a shell there. Pass a
+        // single command string rather than an argument array.
+        const result = process.platform === 'win32'
+            ? spawnSync(`npm ${args.join(' ')}`, { cwd: manifest.dir, stdio: 'inherit', shell: true })
+            : spawnSync('npm', args, { cwd: manifest.dir, stdio: 'inherit' });
         if (result.status !== 0) {
             console.error(`npm publish failed: ${manifest.name} (${manifest.dir})`);
             return 1;

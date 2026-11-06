@@ -46,10 +46,10 @@ export function cargoBuildNative(options: NativeBuildOptions): void {
     const args = ['build', '-p', options.crate];
     if ((options.profile ?? 'release') === 'release') args.push('--release');
     if (options.triple) args.push('--target', options.triple);
+    // `cargo` resolves to a real executable on every supported host, so no shell.
     const result = spawnSync('cargo', args, {
         cwd: path.resolve(options.root),
         stdio: 'inherit',
-        shell: process.platform === 'win32',
         env: { ...process.env, CARGO_BUILD_JOBS: process.env.CARGO_BUILD_JOBS ?? '2', ...options.env },
     });
     if (result.status !== 0) {
