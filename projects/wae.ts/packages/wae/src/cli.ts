@@ -34,7 +34,10 @@ export function buildCli() {
 
     cli.command('publish', 'cli.cmd.publish')
         .option('--dir <path>...', 'cli.opt.dir', { required: true })
+        .option('--tag <ref>', 'cli.opt.tag')
+        .option('--cargo <path>', 'cli.opt.cargo')
         .option('--execute', 'cli.opt.execute')
+        .option('--ci', 'cli.opt.ci')
         .actionCtx(async (options) => cmdPublish(options));
 
     return cli;
@@ -98,6 +101,109 @@ async function cmdDist(options: ParsedOptions): Promise<number> {
     }
 }
 
+/** Strict `X.Y.Z` package versions (no ranges, no prerelease). */
+const PACKAGE_VERSION_RE = /^\d+\.\d+\.\d+$/;
+/** Release tags accepted by the OIDC workflow: `vX.Y.Z`. */
+const RELEASE_TAG_RE = /^v(\d+\.\d+\.\d+)$/;
+
+/** One npm package directory selected for verification or publishing. */
+export type PublishManifest = { dir: string; name: string; version: string };
+
+/** What `wae publish` may do for the selected packages. */
+export type PublishIntent =
+    | { kind: 'verify' }
+    | { kind: 'placeholder' }
+    | { kind: 'ci' }
+    | { kind: 'refused'; message: string };
+
+/**
+ * Decide the publish mode. Real versions are only published from the
+ * Trusted Publisher (OIDC) workflow; a local `--execute` is limited to the
+ * `0.0.0` placeholder stub used to configure the npm trusted publisher.
+ */
+export function resolvePublishIntent(
+    version: string,
+    options: { execute: boolean; ci: boolean; env: NodeJS.ProcessEnv },
+): PublishIntent {
+    if (options.execute && options.ci) {
+        return {
+            kind: 'refused',
+            message: 'use either --execute (0.0.0 placeholder stub) or --ci (Trusted Publisher OIDC release), not both',
+        };
+    }
+    if (options.ci) {
+        const oidc = options.env.GITHUB_ACTIONS === 'true'
+            && Boolean(options.env.ACTIONS_ID_TOKEN_REQUEST_URL)
+            && Boolean(options.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN);
+        if (!oidc) {
+            return {
+                kind: 'refused',
+                message: '--ci requires a GitHub Actions runner with id-token: write (Trusted Publisher OIDC); local real-version publish is disabled',
+            };
+        }
+        return { kind: 'ci' };
+    }
+    if (options.execute) {
+        if (version !== '0.0.0') {
+            return {
+                kind: 'refused',
+                message: `local publish of ${version} is disabled; push tag v${version} and let the OIDC workflow publish. Local --execute only covers the 0.0.0 placeholder stub`,
+            };
+        }
+        return { kind: 'placeholder' };
+    }
+    return { kind: 'verify' };
+}
+
+/** Read `version` from the `[workspace.package]` table of a Cargo workspace file. */
+export function readWorkspaceVersion(cargoPath: string): string | undefined {
+    let text: string;
+    try {
+        text = fs.readFileSync(cargoPath, 'utf8');
+    } catch {
+        return undefined;
+    }
+    let inWorkspacePackage = false;
+    for (const raw of text.split(/\r?\n/)) {
+        const line = raw.replace(/#.*$/, '').trim();
+        if (line.startsWith('[')) {
+            inWorkspacePackage = line === '[workspace.package]';
+            continue;
+        }
+        if (!inWorkspacePackage) continue;
+        const match = line.match(/^version\s*=\s*"([^"]+)"/);
+        if (match) return match[1];
+    }
+    return undefined;
+}
+
+/** Read and validate one npm package manifest (real package, exact version). */
+function readPublishManifest(dir: string): PublishManifest | string {
+    const pack = path.resolve(dir);
+    const manifestPath = path.join(pack, 'package.json');
+    if (!fs.existsSync(manifestPath)) {
+        return `--dir is missing package.json: ${pack}`;
+    }
+    let manifest: { name?: unknown; version?: unknown; private?: unknown };
+    try {
+        manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as typeof manifest;
+    } catch {
+        return `invalid package.json: ${manifestPath}`;
+    }
+    const name = typeof manifest.name === 'string' ? manifest.name : '';
+    const version = typeof manifest.version === 'string' ? manifest.version : '';
+    if (!name) {
+        return `package.json is missing a name: ${manifestPath}`;
+    }
+    if (manifest.private === true) {
+        return `${name} is private and cannot be published`;
+    }
+    if (!PACKAGE_VERSION_RE.test(version)) {
+        return `${name} has no exact X.Y.Z version: ${version || '<empty>'}`;
+    }
+    return { dir: pack, name, version };
+}
+
 async function cmdPublish(options: ParsedOptions): Promise<number> {
     const raw = options.dir;
     const dirs = Array.isArray(raw) ? raw : typeof raw === 'string' ? [raw] : [];
@@ -106,21 +212,91 @@ async function cmdPublish(options: ParsedOptions): Promise<number> {
         return 2;
     }
     const execute = Boolean(options.execute);
-    for (const d of dirs) {
-        const pack = path.resolve(d);
-        if (!fs.existsSync(path.join(pack, 'package.json'))) {
-            console.error(`--dir is missing package.json: ${pack}`);
+    const ci = Boolean(options.ci);
+
+    const manifests: PublishManifest[] = [];
+    for (const dir of dirs) {
+        const manifest = readPublishManifest(dir);
+        if (typeof manifest === 'string') {
+            console.error(manifest);
             return 1;
         }
-        const args = ['publish', '--access', 'public'];
-        if (!execute) args.push('--dry-run');
+        manifests.push(manifest);
+    }
+    const names = new Set<string>();
+    for (const manifest of manifests) {
+        if (names.has(manifest.name)) {
+            console.error(`duplicate package in --dir list: ${manifest.name}`);
+            return 1;
+        }
+        names.add(manifest.name);
+    }
+    const version = manifests[0]!.version;
+    for (const manifest of manifests) {
+        if (manifest.version !== version) {
+            console.error(`publish set versions differ: ${manifest.name}@${manifest.version} vs ${version}`);
+            return 1;
+        }
+    }
+
+    const tagRef = typeof options.tag === 'string' ? options.tag : String(process.env.GITHUB_REF_NAME ?? '');
+    if (tagRef) {
+        const match = RELEASE_TAG_RE.exec(tagRef);
+        if (!match) {
+            console.error(`release tag must look like v<major>.<minor>.<patch>, got ${tagRef}`);
+            return 1;
+        }
+        if (match[1] !== version) {
+            console.error(`tag ${tagRef} does not match package version ${version}`);
+            return 1;
+        }
+    } else if (ci) {
+        console.error('--ci requires a release tag: pass --tag <vX.Y.Z> or set GITHUB_REF_NAME');
+        return 1;
+    }
+
+    const cargoRaw = typeof options.cargo === 'string' && options.cargo ? options.cargo : 'Cargo.toml';
+    const cargoPath = path.resolve(cargoRaw);
+    const cargoVersion = readWorkspaceVersion(cargoPath);
+    if (cargoVersion === undefined) {
+        if (ci) {
+            console.error(`cannot read [workspace.package] version from ${cargoPath}`);
+            return 1;
+        }
+    } else if (cargoVersion !== version) {
+        console.error(`Cargo [workspace.package] version ${cargoVersion} does not match npm package version ${version}`);
+        return 1;
+    }
+
+    const intent = resolvePublishIntent(version, { execute, ci, env: process.env });
+    if (intent.kind === 'refused') {
+        console.error(intent.message);
+        return 2;
+    }
+
+    if (intent.kind === 'verify') {
+        const tagText = tagRef ? ` for ${tagRef}` : '';
+        console.log(`verified ${manifests.length} package(s) at ${version}${tagText}; push tag v${version} to publish via Trusted Publisher (OIDC)`);
+        for (const manifest of manifests) {
+            console.log(`  ${manifest.name}@${manifest.version} → ${manifest.dir}`);
+        }
+        return 0;
+    }
+
+    const args = ['publish', '--access', 'public'];
+    if (intent.kind === 'ci') {
+        args.push('--provenance');
+    } else {
+        console.log(`publishing ${version} as the 0.0.0 placeholder stub (Trusted Publisher setup only)`);
+    }
+    for (const manifest of manifests) {
         const result = spawnSync('npm', args, {
-            cwd: pack,
+            cwd: manifest.dir,
             stdio: 'inherit',
             shell: process.platform === 'win32',
         });
         if (result.status !== 0) {
-            console.error(`npm publish failed: ${pack}`);
+            console.error(`npm publish failed: ${manifest.name} (${manifest.dir})`);
             return 1;
         }
     }

@@ -5,7 +5,7 @@
             "new": "从 open-tools 模板脚手架新建工具项目",
             "build": "在产品工作区执行 cargo build -p <package> --release",
             "dist": "构建并把 cdylib 暂存到 npm 平台包目录",
-            "publish": "对一个或多个 npm 包目录执行 npm publish（默认 dry-run）"
+            "publish": "校验 npm 包目录与 tag 发布一致性；实际发布走 Trusted Publisher（OIDC）"
         },
         "opt": {
             "with-gui": "保留 GUI 静态页骨架",
@@ -15,7 +15,10 @@
             "dist-out": "平台包输出目录",
             "file": "平台包内文件名（如 tool.win32-x64.node）",
             "dir": "npm 包目录（可重复）",
-            "execute": "真正执行 publish（省略则为 --dry-run）"
+            "tag": "要校验的发布 tag（CI 默认取 GITHUB_REF_NAME）",
+            "cargo": "用于校验 [workspace.package] 版本的 Cargo 工作区清单",
+            "execute": "仅在本地发布 0.0.0 占位 stub（真实版本一律拒绝）",
+            "ci": "在 GitHub Actions 中经 Trusted Publisher（OIDC）发布"
         }
     }
 }

@@ -5,7 +5,7 @@
             "new": "Scaffold a new tool project from the open-tools template",
             "build": "cargo build -p <package> --release in a product workspace",
             "dist": "Build and stage a cdylib into an npm platform package directory",
-            "publish": "npm publish one or more package directories (dry-run by default)"
+            "publish": "Verify npm package directories for a tag release; publishing needs Trusted Publisher (OIDC)"
         },
         "opt": {
             "with-gui": "Keep the GUI static page skeleton",
@@ -15,7 +15,10 @@
             "dist-out": "Platform package output directory",
             "file": "File name inside the platform package (e.g. tool.win32-x64.node)",
             "dir": "npm package directory (repeatable)",
-            "execute": "Actually publish (omit for --dry-run)"
+            "tag": "Release tag to verify (defaults to GITHUB_REF_NAME in CI)",
+            "cargo": "Cargo workspace manifest for the [workspace.package] version check",
+            "execute": "Publish the 0.0.0 placeholder stub locally (real versions are rejected)",
+            "ci": "Publish via Trusted Publisher (OIDC) from GitHub Actions"
         }
     }
 }

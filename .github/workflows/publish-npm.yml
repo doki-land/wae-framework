@@ -1,27 +1,36 @@
 name: publish-npm
 
-# 手动闸门：对调用方提供的 npm 包目录执行 `wae publish`（默认 dry-run）。
+# Real `@wae/*` versions publish only through the npm Trusted Publisher (OIDC).
+# Tag pushes are the normal path. `workflow_dispatch` exists for an explicit,
+# user-authorized retry and must name an existing release tag.
 on:
+  push:
+    tags: ['v*']
   workflow_dispatch:
     inputs:
-      dirs:
-        description: "逗号分隔的 npm 包目录（相对仓库根）"
+      tag:
+        description: "Existing release tag (for example v0.0.1). It must match every package version."
         required: true
         type: string
-      execute:
-        description: "真正执行 npm publish"
-        required: false
-        default: "false"
-        type: choice
-        options:
-          - "false"
-          - "true"
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: publish-npm-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   publish:
     runs-on: ubuntu-latest
+    environment: NPM_PUBLISH
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - uses: pnpm/action-setup@v4
         with:
           version: 10.28.0
@@ -30,22 +39,26 @@ jobs:
           node-version: "22"
           registry-url: https://registry.npmjs.org
           package-manager-cache: false
+      - name: Upgrade npm for Trusted Publisher support
+        run: npm install --global npm@11
       - name: Install
+        # 本仓不提交 pnpm-lock.yaml，禁止 frozen-lockfile
         run: pnpm install --no-frozen-lockfile
       - name: Build
         run: pnpm run build:ts
-      - name: wae publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Verify tag, npm versions, and Cargo workspace version
         run: |
-          ARGS=()
-          IFS=',' read -ra DIRS <<< "${{ inputs.dirs }}"
-          for d in "${DIRS[@]}"; do
-            d="$(echo "$d" | xargs)"
-            ARGS+=(--dir "$d")
-          done
-          if [ "${{ inputs.execute }}" = "true" ]; then
-            pnpm exec wae publish "${ARGS[@]}" --execute
-          else
-            pnpm exec wae publish "${ARGS[@]}"
-          fi
+          git rev-parse --verify "refs/tags/${RELEASE_TAG}^{commit}"
+          pnpm exec wae publish \
+            --dir projects/wae.ts/packages/wae \
+            --dir projects/wae.ts/packages/wae-commander \
+            --tag "${RELEASE_TAG}" \
+            --cargo Cargo.toml
+      - name: Publish via Trusted Publisher (OIDC)
+        run: |
+          pnpm exec wae publish \
+            --dir projects/wae.ts/packages/wae \
+            --dir projects/wae.ts/packages/wae-commander \
+            --tag "${RELEASE_TAG}" \
+            --cargo Cargo.toml \
+            --ci
