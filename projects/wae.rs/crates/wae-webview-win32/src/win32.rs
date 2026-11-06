@@ -40,7 +40,7 @@ use windows::{
             WindowsAndMessaging::{
                 CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GWLP_USERDATA, GetClientRect,
                 GetWindowLongPtrW, IDC_ARROW, IsWindow, LoadCursorW, MSG, PM_REMOVE, PeekMessageW, PostMessageW, PostQuitMessage,
-                RegisterClassW, SW_SHOW, SWP_NOACTIVATE, SWP_NOZORDER, SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, ShowWindow,
+                RegisterClassW, SW_SHOW, SW_SHOWNORMAL, SWP_NOACTIVATE, SWP_NOZORDER, SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, ShowWindow,
                 TranslateMessage, WINDOW_EX_STYLE, WM_CLOSE, WM_CREATE, WM_DESTROY, WM_DPICHANGED, WM_KEYDOWN, WM_QUIT, WM_SIZE, WNDCLASSW,
                 WS_OVERLAPPEDWINDOW, WS_VISIBLE,
             },
@@ -765,7 +765,11 @@ impl WebViewBackend for Win32Backend {
                 awareness.name(),
                 dpi::window_dpi(hwnd),
             ));
+            // Windows 只让第一次 ShowWindow 使用启动信息里的显示状态，隐藏或最小化启动
+            // （安装器、快捷方式、按 SW_SHOWMINNOACTIVE 启动的桥接进程）会把窗口留在
+            // 不可见状态。第二次调用仍使用传入的 nCmdShow，保证窗口真正显示出来。
             let _ = ShowWindow(hwnd, SW_SHOW);
+            let _ = ShowWindow(hwnd, SW_SHOWNORMAL);
             let _ = SetForegroundWindow(hwnd);
 
             let environment = create_environment()?;
