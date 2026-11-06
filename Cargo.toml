@@ -30,7 +30,7 @@ version = "0.0.1"
 edition = "2024"
 license = "Apache-2.0"
 authors = ["WAE Team <team@wae.dev>"]
-repository = "https://github.com/oovm/wae"
+repository = "https://github.com/doki-land/wae-framework"
 
 [workspace.dependencies]
 thiserror = "2"

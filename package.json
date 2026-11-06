@@ -4,8 +4,8 @@
     "type": "module",
     "packageManager": "pnpm@10.28.0",
     "description": "WAE: Rust library crates + TypeScript meta CLI / commander",
-    "repository": "https://github.com/oovm/wae",
-    "homepage": "https://github.com/oovm/wae",
+    "repository": "https://github.com/doki-land/wae-framework",
+    "homepage": "https://github.com/doki-land/wae-framework",
     "license": "MIT",
     "scripts": {
         "check:rust": "cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace",

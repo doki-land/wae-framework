@@ -95,6 +95,60 @@ test('publish workflow publishes only the JS packages and no template placeholde
     assert.doesNotMatch(publishWorkflow, /templates/);
 });
 
+test('published manifests point at the provenance repository', () => {
+    const expectedUrl = 'git+https://github.com/doki-land/wae-framework.git';
+    const packagesDir = path.join(repoRoot, 'projects', 'wae.ts', 'packages');
+    const manifestPaths = fs.readdirSync(packagesDir)
+        .map((entry) => path.join(packagesDir, entry, 'package.json'))
+        .filter((manifestPath) => fs.existsSync(manifestPath));
+    assert.ok(manifestPaths.length > 0);
+    for (const manifestPath of manifestPaths) {
+        const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as {
+            name: string;
+            private?: boolean;
+            repository?: { url?: string; directory?: string };
+        };
+        if (manifest.private === true) continue;
+        assert.equal(manifest.repository?.url, expectedUrl, `${manifest.name} repository.url must match the provenance repository`);
+        const expectedDirectory = path.relative(repoRoot, path.dirname(manifestPath)).split(path.sep).join('/');
+        assert.equal(manifest.repository?.directory, expectedDirectory, `${manifest.name} repository.directory must match its path`);
+    }
+
+    const rootManifest = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8')) as {
+        repository?: string | { url?: string };
+    };
+    const rootUrl = typeof rootManifest.repository === 'string'
+        ? rootManifest.repository
+        : rootManifest.repository?.url;
+    assert.equal(
+        rootUrl?.replace(/^git\+/, '').replace(/\.git$/, ''),
+        'https://github.com/doki-land/wae-framework',
+        'root repository must match the provenance repository',
+    );
+});
+
+test('templates never hardcode the real repository', () => {
+    const templatesDir = path.join(repoRoot, 'projects', 'wae.ts', 'templates');
+    const manifestPaths: string[] = [];
+    const walk = (dir: string): void => {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+            const full = path.join(dir, entry.name);
+            if (entry.isDirectory()) walk(full);
+            else if (entry.name === 'package.json') manifestPaths.push(full);
+        }
+    };
+    walk(templatesDir);
+    assert.ok(manifestPaths.length > 0, 'expected at least one template manifest');
+    for (const manifestPath of manifestPaths) {
+        const text = fs.readFileSync(manifestPath, 'utf8');
+        assert.doesNotMatch(
+            text,
+            /doki-land\/wae-framework|oovm\/wae/,
+            `${path.relative(repoRoot, manifestPath)} must use a placeholder instead of the real repository`,
+        );
+    }
+});
+
 test('publish verifies tag, package, and Cargo versions without invoking npm', async () => {
     const fixture = makePublishFixture('0.1.0', '0.1.0');
     try {

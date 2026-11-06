@@ -6,7 +6,7 @@
     "license": "MIT",
     "repository": {
         "type": "git",
-        "url": "git+https://github.com/oovm/wae.git",
+        "url": "git+https://github.com/doki-land/wae-framework.git",
         "directory": "projects/wae.ts/packages/wae"
     },
     "bin": {

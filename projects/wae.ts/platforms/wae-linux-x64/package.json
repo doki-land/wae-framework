@@ -5,7 +5,7 @@
     "license": "Apache-2.0",
     "repository": {
         "type": "git",
-        "url": "git+https://github.com/oovm/wae.git",
+        "url": "git+https://github.com/doki-land/wae-framework.git",
         "directory": "projects/wae.ts/platforms/wae-linux-x64"
     },
     "os": [
