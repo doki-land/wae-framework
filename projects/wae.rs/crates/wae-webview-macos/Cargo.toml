@@ -9,5 +9,32 @@ readme = "readme.md"
 description = "macOS WKWebView 后端"
 publish = false
 
-[dependencies]
+[target.'cfg(target_os = "macos")'.dependencies]
 wae-webview = { path = "../wae-webview" }
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = [
+    "NSString",
+    "NSURL",
+    "NSURLRequest",
+    "NSDate",
+    "NSRunLoop",
+    "NSGeometry",
+    "NSObjCRuntime",
+] }
+objc2-app-kit = { version = "0.3", features = [
+    "NSApplication",
+    "NSWindow",
+    "NSView",
+    "NSEvent",
+    "NSResponder",
+    "NSGraphics",
+] }
+objc2-web-kit = { version = "0.3", features = [
+    "WKWebView",
+    "WKWebViewConfiguration",
+    "WKUserContentController",
+    "WKScriptMessage",
+    "WKScriptMessageHandler",
+    "WKNavigation",
+    "block2",
+] }

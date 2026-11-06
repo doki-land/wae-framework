@@ -8,6 +8,39 @@
 
 use std::fmt;
 
+/// macOS / Linux WebKit 后端的消息处理器名：页面侧为
+/// `window.webkit.messageHandlers.wae`。
+pub const MESSAGE_HANDLER_NAME: &str = "wae";
+
+/// 生成宿主 → 页面的回投脚本，调用页面注册的 `window.__waeReceive(text)`。
+///
+/// Windows 走 WebView2 原生通道，不使用该脚本；macOS / Linux 的 WebKit
+/// 没有等价的反向通道，只能通过 `evaluateJavaScript` 调用页面函数。
+pub fn page_receive_script(text: &str) -> String {
+    format!("if (window.__waeReceive) window.__waeReceive({});", js_string_literal(text))
+}
+
+/// 把任意字符串转成可安全嵌入 JavaScript 的字符串字面量（含 U+2028/U+2029）。
+fn js_string_literal(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 2);
+    out.push('"');
+    for ch in text.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '\u{2028}' => out.push_str("\\u2028"),
+            '\u{2029}' => out.push_str("\\u2029"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
 /// 打开原生 WebView 窗口的选项。
 #[derive(Debug, Clone)]
 pub struct OpenOptions {
