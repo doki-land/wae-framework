@@ -16,7 +16,7 @@ use serde::Serialize;
 use crate::{
     audit::capability_ids,
     error::{CapabilityState, Error, Result},
-    platform::{Platform, platform_name},
+    platform::Platform,
 };
 
 /// Stable application id written into audit records.
@@ -176,7 +176,7 @@ pub fn plan_install_with(platform: Platform, env: &impl Fn(&str) -> Option<Strin
     Ok(InstallPlan {
         app: APP_ID.to_string(),
         version,
-        platform: platform_name().to_string(),
+        platform: platform.name().to_string(),
         config_dir: paths.config_dir.display().to_string(),
         config_path: paths.config_path.display().to_string(),
         marker_path: paths.marker_path.display().to_string(),
@@ -221,7 +221,7 @@ pub fn plan_uninstall_with(platform: Platform, env: &impl Fn(&str) -> Option<Str
     Ok(UninstallPlan {
         app: APP_ID.to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
-        platform: platform_name().to_string(),
+        platform: platform.name().to_string(),
         config_path: paths.config_path.display().to_string(),
         shortcut_path: paths.shortcut_path.as_ref().map(|path| path.display().to_string()),
         marker_path: paths.marker_path.display().to_string(),
@@ -390,8 +390,17 @@ mod tests {
             ("XDG_DATA_HOME".to_string(), root.join("data").display().to_string()),
         ]);
         let plan = plan_install_with(Platform::Linux, &|key| env.get(key).cloned(), &InstallOptions::default()).unwrap();
+        assert_eq!(plan.platform, "linux");
         assert!(PathBuf::from(&plan.config_path).ends_with(Path::new("cfg").join("{{name}}").join("config.json")));
         assert!(PathBuf::from(plan.shortcut_path.as_ref().unwrap()).ends_with(Path::new("data").join("applications").join("{{name}}.desktop")));
+    }
+
+    #[test]
+    fn uninstall_reports_the_explicit_platform() {
+        let root = temp_dir();
+        let env = HashMap::from([("HOME".to_string(), root.display().to_string())]);
+        let plan = plan_uninstall_with(Platform::Linux, &|key| env.get(key).cloned(), &UninstallOptions::default()).unwrap();
+        assert_eq!(plan.platform, "linux");
     }
 
     #[test]
