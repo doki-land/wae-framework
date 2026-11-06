@@ -69,7 +69,10 @@ pub fn stage_native(req: &StageNative) -> Result<()> {
     Ok(())
 }
 
-fn find_cdylib(dir: &Path, cargo_package: &str) -> Result<PathBuf> {
+/// 在给定 release 目录中按 Cargo 包名推导 cdylib 候选，返回首个存在的产物。
+///
+/// 候选顺序为 Windows `dll`、已改名 `node`、Linux `so`、macOS `dylib`。
+pub fn find_cdylib(dir: &Path, cargo_package: &str) -> Result<PathBuf> {
     let stem = cargo_package.replace('-', "_");
     let candidates = [
         dir.join(format!("{stem}.dll")),
