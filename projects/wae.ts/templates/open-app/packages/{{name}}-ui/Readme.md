@@ -6,9 +6,9 @@ VMZ application shell for the {{nameTitle}} native host.
 pnpm run build
 ```
 
-`vmz build . --profile static` writes to `dist/static`, then
-`scripts/stage-gui.ts` copies it to `packages/{{name}}/dist/gui`, which is the
-directory the N-API host loads by default.
+`vmz build . --profile static` writes to `dist/static`. The root `wae build`
+staging step copies it to `packages/{{name}}/dist/gui`, which is the directory
+the N-API host loads by default, so this package never copies files itself.
 
 The page talks to the host through the WebView bridge:
 

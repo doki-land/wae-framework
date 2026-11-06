@@ -9,14 +9,14 @@
         "node": ">=22"
     },
     "scripts": {
-        "build:napi": "node --experimental-strip-types scripts/build-napi.ts",
+        "build": "wae build",
+        "build:napi": "wae native build",
         "build:ts": "pnpm --filter @wae/{{name}} run build",
         "build:ui": "pnpm --filter @wae/{{name}}-ui run build",
-        "build": "pnpm run build:napi && pnpm run build:ts && pnpm run build:ui",
-        "stage:native": "node --experimental-strip-types scripts/stage-native.ts",
-        "check:skills": "node --experimental-strip-types scripts/check-skills.ts",
+        "stage:napi": "wae native stage",
+        "smoke:napi": "wae native smoke",
         "check:rust": "cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace",
-        "gui": "pnpm run build && pnpm --filter @wae/{{name}} exec node ./dist/cli.js gui"
+        "gui": "wae build && pnpm --filter @wae/{{name}} exec node ./dist/cli.js gui"
     },
     "devDependencies": {
         "@types/node": "^22.20.4",

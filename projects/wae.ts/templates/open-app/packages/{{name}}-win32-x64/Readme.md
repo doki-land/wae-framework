@@ -2,8 +2,9 @@
 
 Platform package for the `{{name}}` native addon on Windows x64.
 
-The `*.node` binary is produced by `scripts/build-napi.ts` and copied here by
-`scripts/stage-native.ts`. It is not committed. Build before publishing:
+The `*.node` binary is produced by `wae native build` from the target declared in
+`wae.config.ts` and copied into this directory. It is not committed. Build
+before publishing:
 
 ```bash
 pnpm run build:napi

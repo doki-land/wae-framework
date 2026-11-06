@@ -7,9 +7,8 @@
     "scripts": {
         "design:init": "vmz init design --preset web-surface",
         "check": "vmz check .",
-        "build": "vmz build . --profile static && node --experimental-strip-types ./scripts/stage-gui.ts",
-        "serve": "vmz serve . --profile static",
-        "stage": "node --experimental-strip-types ./scripts/stage-gui.ts"
+        "build": "vmz build . --profile static",
+        "serve": "vmz serve . --profile static"
     },
     "dependencies": {
         "@vmz/core": "0.3.13",

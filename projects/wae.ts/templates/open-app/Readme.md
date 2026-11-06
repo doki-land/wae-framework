@@ -15,12 +15,10 @@ product needs a CLI, a GUI, install/uninstall, audit, and platform packages.
 | `crates/core` | Portable domain model, capability states, install planning, audit field reservation |
 | `crates/napi` | Platform-neutral N-API surface over the `wae` facade |
 | `packages/{{name}}` | Meta package, typed library, and the `{{name}}` CLI |
-| `packages/{{name}}-ui` | VMZ page, design tokens, and GUI staging |
+| `packages/{{name}}-ui` | VMZ page and design tokens; `wae build` stages its static delivery into the app |
 | `packages/{{name}}-skills` | Agent skills with frontmatter and safety prerequisites |
 | `packages/{{name}}-win32-x64` | First native platform package (`os` / `cpu` / `optionalDependencies`) |
-| `scripts/build-napi.ts` | Build the native addon and resolve its artifact |
-| `scripts/stage-native.ts` | Copy the artifact into the platform package |
-| `scripts/check-skills.ts` | Validate skill frontmatter and every CLI command and flag |
+| `wae.config.ts` | Native targets, platform packages, TS/UI/skills steps, staging and release set |
 
 ## First run
 
@@ -28,6 +26,7 @@ The template cannot ship lockfiles because the app name, repository, and first
 dependency resolution are not known until generation.
 
 ```sh
+npm install --global @wae/wae
 pnpm install
 git add pnpm-lock.yaml Cargo.lock
 ```
@@ -40,12 +39,17 @@ first `Cargo.lock` is committed.
 ## Commands
 
 ```sh
-pnpm run build:napi    # cargo build the cdylib and stage the native artifact
-pnpm run build:ts      # compile the CLI and library
-pnpm run build:ui      # build the VMZ UI and stage dist/gui
-pnpm run check:skills  # frontmatter, command, and flag validation
+pnpm run build         # wae build: native → TS → UI → skills → staging
+pnpm run build:napi    # build one configured native target and stage it
+pnpm run stage:napi    # restage an already built native artifact
+pnpm run smoke:napi    # load the staged addon and verify capabilities
 pnpm run check:rust    # fmt + clippy -D warnings + test
 ```
+
+`wae build` reads `wae.config.ts` from the nearest parent directory, runs the
+same order every time, and exits non-zero with a stable `build_*` code when a
+target, artifact, platform package, skills tree, or release entry is wrong.
+There is no silent skip: an unconfigured step is reported as `skipped`.
 
 The CLI surface is non-interactive and machine-readable where it mutates state:
 
