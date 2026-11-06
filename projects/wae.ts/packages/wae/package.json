@@ -3,7 +3,7 @@
     "version": "0.0.1",
     "type": "module",
     "description": "WAE meta CLI: scaffold, build, stage native npm addons, and publish",
-    "license": "MIT",
+    "license": "Apache-2.0",
     "repository": {
         "type": "git",
         "url": "git+https://github.com/doki-land/wae-framework.git",

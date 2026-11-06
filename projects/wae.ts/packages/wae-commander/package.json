@@ -3,7 +3,7 @@
     "version": "0.0.1",
     "type": "module",
     "description": "i18n-first TypeScript CLI framework (command tree, locales loading, commander.* chrome)",
-    "license": "MIT",
+    "license": "Apache-2.0",
     "repository": {
         "type": "git",
         "url": "git+https://github.com/doki-land/wae-framework.git",

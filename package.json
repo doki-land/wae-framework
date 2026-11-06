@@ -6,7 +6,7 @@
     "description": "WAE: Rust library crates + TypeScript meta CLI / commander",
     "repository": "https://github.com/doki-land/wae-framework",
     "homepage": "https://github.com/doki-land/wae-framework",
-    "license": "MIT",
+    "license": "Apache-2.0",
     "scripts": {
         "check:rust": "cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace",
         "build:ts": "pnpm -r --filter \"./projects/wae.ts/packages/**\" run build",
