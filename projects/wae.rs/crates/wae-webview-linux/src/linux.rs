@@ -367,7 +367,10 @@ mod tests {
 
     #[test]
     fn missing_runtime_libraries_report_a_dependency_failure() {
-        let error = open_first(&["libwae-missing-runtime-probe.so"]).err().expect("a missing library must fail");
+        let error = match open_first(&["libwae-missing-runtime-probe.so"]) {
+            Ok(_) => panic!("a missing library must fail"),
+            Err(error) => error,
+        };
         assert_eq!(error.code(), Some("webkit_dependency_missing"));
         assert_eq!(error.stage(), Some("load_libraries"));
         match &error {
