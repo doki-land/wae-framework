@@ -14,7 +14,7 @@ import { findCdylib } from '../projects/wae.ts/packages/wae/src/native-stage.ts'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CARGO_PACKAGE = 'wae-addon';
-const PLATFORMS_DIR = path.join(ROOT, 'projects', 'wae.ts', 'packages', 'platforms');
+const PLATFORMS_DIR = path.join(ROOT, 'projects', 'wae.ts', 'platforms');
 
 export type NativeTarget = {
     platform: 'win32' | 'darwin' | 'linux';
@@ -60,7 +60,7 @@ export function nativeFileName(target: NativeTarget): string {
 
 /** Platform package directory. */
 export function platformDir(root: string, target: NativeTarget): string {
-    return path.join(root, 'projects', 'wae.ts', 'packages', 'platforms', `wae-${targetKey(target)}`);
+    return path.join(root, 'projects', 'wae.ts', 'platforms', `wae-${targetKey(target)}`);
 }
 
 /** Cargo release directory for the target (explicit `--target` builds land in a triple subdirectory). */

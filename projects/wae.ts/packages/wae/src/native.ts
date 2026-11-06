@@ -151,8 +151,8 @@ export function nativeCandidates(options: NativeResolveOptions = {}): string[] {
         // unless the repository-local platform package below exists.
     }
 
-    // Repository checkout: packages/wae/dist -> packages/platforms/<package>.
-    candidates.push(path.resolve(here, '..', '..', 'platforms', `wae-${key}`, file));
+    // Repository checkout: packages/wae/<src|dist> -> wae.ts/platforms/<package>.
+    candidates.push(path.resolve(here, '..', '..', '..', 'platforms', `wae-${key}`, file));
     return candidates;
 }
 

@@ -1,6 +1,6 @@
 packages:
   - "projects/wae.ts/packages/*"
-  - "projects/wae.ts/packages/platforms/*"
+  - "projects/wae.ts/platforms/*"
 
 # The platform packages are exact-version optional dependencies of `@wae/wae`.
 # Link matching local versions so installs do not hit the registry before release.

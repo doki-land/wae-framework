@@ -1,0 +1,25 @@
+{
+    "name": "@wae/wae-win32-x64",
+    "version": "0.0.1",
+    "description": "WAE native addon for Windows x64",
+    "license": "MPL-2.0",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/oovm/wae.git",
+        "directory": "projects/wae.ts/platforms/wae-win32-x64"
+    },
+    "os": [
+        "win32"
+    ],
+    "cpu": [
+        "x64"
+    ],
+    "main": "wae.win32-x64.node",
+    "files": [
+        "wae.win32-x64.node",
+        "readme.md"
+    ],
+    "engines": {
+        "node": ">=20"
+    }
+}
