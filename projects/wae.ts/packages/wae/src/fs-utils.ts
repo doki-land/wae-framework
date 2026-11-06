@@ -35,12 +35,23 @@ export function placeholderValues(name: string): Record<string, string> {
 /** Kebab-case app name that can become an npm package, crate, and binary. */
 export const SCAFFOLD_NAME_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 
+/**
+ * Scaffold-only suffix for files that cargo must not parse.
+ *
+ * Cargo parses every `Cargo.toml` it finds inside a git checkout, so template
+ * manifests carrying `{{...}}` placeholders would surface as manifest parse
+ * errors in every consumer of this repository. They ship as
+ * `Cargo.toml.tmpl` and get their real name back during scaffolding.
+ */
+const SCAFFOLD_SUFFIX = '.tmpl';
+
 /** Recursively copy a directory. */
 export function copyDir(from: string, to: string): void {
     fs.mkdirSync(to, { recursive: true });
     for (const entry of fs.readdirSync(from, { withFileTypes: true })) {
         const src = path.join(from, entry.name);
-        const dest = path.join(to, entry.name);
+        const name = entry.name.endsWith(SCAFFOLD_SUFFIX) ? entry.name.slice(0, -SCAFFOLD_SUFFIX.length) : entry.name;
+        const dest = path.join(to, name);
         if (entry.isDirectory()) {
             copyDir(src, dest);
         } else {

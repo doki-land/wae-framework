@@ -195,6 +195,26 @@ test('templates never hardcode the real repository', () => {
     }
 });
 
+test('template manifests stay out of the file name cargo scans', () => {
+    const templatesDir = path.join(repoRoot, 'projects', 'wae.ts', 'templates');
+    const manifests: string[] = [];
+    const walk = (dir: string): void => {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+            const full = path.join(dir, entry.name);
+            if (entry.isDirectory()) walk(full);
+            else if (entry.name === 'Cargo.toml') manifests.push(full);
+        }
+    };
+    walk(templatesDir);
+    // Cargo parses every `Cargo.toml` in a git checkout, so a template manifest
+    // named `Cargo.toml` makes every consumer print placeholder parse errors.
+    assert.deepEqual(
+        manifests,
+        [],
+        `template manifests must ship as \`Cargo.toml.tmpl\`: ${manifests.map((file) => path.relative(repoRoot, file)).join(', ')}`,
+    );
+});
+
 test('publish verifies tag, package, and Cargo versions without invoking npm', async () => {
     const fixture = makePublishFixture('0.1.0', '0.1.0');
     try {
