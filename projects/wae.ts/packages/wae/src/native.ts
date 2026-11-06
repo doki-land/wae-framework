@@ -43,6 +43,19 @@ export type WaeNative = {
 /** Capability name reported by unsupported and load failures. */
 export const NATIVE_CAPABILITY = 'native-addon';
 
+/** Node platform id → Rust target OS name reported by `capabilities()`. */
+export const NATIVE_PLATFORM_NAMES: Record<string, string> = {
+    win32: 'windows',
+    darwin: 'macos',
+    linux: 'linux',
+};
+
+/** Node arch id → Rust target architecture name reported by `capabilities()`. */
+export const NATIVE_ARCH_NAMES: Record<string, string> = {
+    x64: 'x86_64',
+    arm64: 'aarch64',
+};
+
 /** Platforms with a published native addon package. */
 const PLATFORM_PACKAGES: Record<string, string> = {
     'win32-x64': '@wae/wae-win32-x64',

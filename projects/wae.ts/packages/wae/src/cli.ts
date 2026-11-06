@@ -3,20 +3,60 @@
  * `@wae/wae` meta CLI: scaffold / build / stage native addons / npm publish.
  */
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { createCli, type ParsedOptions } from '@wae/commander';
+import { BUILD_CODES, WaeBuildError } from './build-error.js';
+import {
+    loadConfig,
+    WaeConfigError,
+    WAE_CONFIG_FILE,
+    type WaeNativeConfig,
+    type WaeNativeTarget,
+} from './config.js';
+import { defineConfig } from './config.js';
+import { runBuild, readWorkspaceVersion } from './build.js';
+
+export { readWorkspaceVersion };
 import { copyDir, removePath, rewritePlaceholders, SCAFFOLD_NAME_PATTERN } from './fs-utils.js';
-import { cargoBuildRelease, stageNative } from './native-stage.js';
+import {
+    cargoBuildNative,
+    findNativeArtifact,
+    stageBuiltArtifact,
+    stageNative,
+} from './native-stage.js';
 import {
     inspectNative,
     loadNative,
     NativeLoadError,
     NativeUnsupportedError,
+    NATIVE_ARCH_NAMES,
+    NATIVE_PLATFORM_NAMES,
     type NativeAuditFilter,
 } from './native.js';
 import { localesRoot, SCAFFOLD_TEMPLATES, type ScaffoldTemplate, templateRoot } from './paths.js';
+
+export { defineConfig };
+export type {
+    WaeActorSource,
+    WaeAuditConfig,
+    WaeBuildConfig,
+    WaeBuildStep,
+    WaeBuildStepName,
+    WaeCiConfig,
+    WaeConfig,
+    WaeInstallConfig,
+    WaeNativeConfig,
+    WaeNativeTarget,
+    WaePlatformPackage,
+    WaeReleaseConfig,
+    WaeReleasePackage,
+    WaeSkillsConfig,
+    WaeSkillsPackage,
+} from './config.js';
 
 /** Build the product CLI (tests may call this directly). */
 export function buildCli() {
@@ -29,8 +69,10 @@ export function buildCli() {
         .actionCtx(async (options, args) => cmdNew(options, args));
 
     cli.command('build', 'cli.cmd.build')
-        .option('--project <dir>', 'cli.opt.project', { required: true })
-        .option('--package <name>', 'cli.opt.package', { required: true })
+        .option('--project <dir>', 'cli.opt.project')
+        .option('--package <name>', 'cli.opt.package')
+        .option('--target <key>', 'cli.opt.target')
+        .option('--dry-run', 'cli.opt.dry-run')
         .actionCtx(async (options) => cmdBuild(options));
 
     cli.command('dist', 'cli.cmd.dist')
@@ -51,6 +93,21 @@ export function buildCli() {
     native.command('info', 'cli.cmd.native-info')
         .option('--json', 'cli.opt.json')
         .actionCtx(async (options) => cmdNativeInfo(options));
+    native.command('build', 'cli.cmd.native-build')
+        .option('--project <dir>', 'cli.opt.project')
+        .option('--target <key>', 'cli.opt.target')
+        .option('--dry-run', 'cli.opt.dry-run')
+        .actionCtx(async (options) => cmdNativeBuild(options));
+    native.command('stage', 'cli.cmd.native-stage')
+        .option('--project <dir>', 'cli.opt.project')
+        .option('--target <key>', 'cli.opt.target')
+        .option('--dry-run', 'cli.opt.dry-run')
+        .actionCtx(async (options) => cmdNativeStage(options));
+    native.command('smoke', 'cli.cmd.native-smoke')
+        .option('--project <dir>', 'cli.opt.project')
+        .option('--target <key>', 'cli.opt.target')
+        .option('--json', 'cli.opt.json')
+        .actionCtx(async (options) => cmdNativeSmoke(options));
     native.command('audit', 'cli.cmd.native-audit')
         .option('--kind <kind>', 'cli.opt.kind', { enum: ['user', 'agent'] })
         .option('--id <id>', 'cli.opt.actor-id')
@@ -106,16 +163,217 @@ async function cmdNew(options: ParsedOptions, args: string[]): Promise<number> {
 }
 
 async function cmdBuild(options: ParsedOptions): Promise<number> {
-    const project = String(options.project);
-    const pkg = String(options.package);
+    const startDir = typeof options.project === 'string' ? path.resolve(options.project) : process.cwd();
     try {
-        const root = path.resolve(project);
-        cargoBuildRelease(root, pkg);
-        console.log(`built -p ${pkg} in ${root}`);
+        runBuild({
+            startDir,
+            ...(typeof options.package === 'string' ? { packageOverride: options.package } : {}),
+            ...(typeof options.target === 'string' ? { targetOverride: options.target } : {}),
+            dryRun: options['dry-run'] === true,
+        });
         return 0;
-    } catch (err) {
-        console.error(`wae build failed: ${err instanceof Error ? err.message : err}`);
+    } catch (error) {
+        return buildFailure('build', error);
+    }
+}
+
+/** Render a structured build/config failure as JSON and return exit code 1. */
+function buildFailure(scope: string, error: unknown): number {
+    if (error instanceof WaeBuildError || error instanceof WaeConfigError) {
+        console.error(JSON.stringify(error.toJSON(), null, 2));
         return 1;
+    }
+    console.error(`wae ${scope} failed: ${error instanceof Error ? error.message : String(error)}`);
+    return 1;
+}
+
+type NativePlan = { root: string; native: WaeNativeConfig; target: WaeNativeTarget };
+
+/** Load the config and select one native target (host by default). */
+function nativePlan(options: ParsedOptions): NativePlan {
+    const startDir = typeof options.project === 'string' ? path.resolve(options.project) : process.cwd();
+    const loaded = loadConfig(startDir);
+    if (loaded.config?.native === undefined) {
+        throw new WaeBuildError(
+            BUILD_CODES.targetMissing,
+            `\`native\` is not configured in ${WAE_CONFIG_FILE}`,
+            { attempts: [loaded.path ?? path.join(loaded.root, WAE_CONFIG_FILE)] },
+        );
+    }
+    return {
+        root: loaded.root,
+        native: loaded.config.native,
+        target: selectNativeTarget(loaded.config.native, typeof options.target === 'string' ? options.target : undefined),
+    };
+}
+
+async function cmdNativeBuild(options: ParsedOptions): Promise<number> {
+    try {
+        const plan = nativePlan(options);
+        const key = `${plan.target.platform}-${plan.target.arch}`;
+        if (options['dry-run'] === true) {
+            console.log(`[wae] native build would ${plan.native.stageOnly ? 'stage' : 'build'} \`${key}\` → ${path.join(plan.root, plan.target.dir, plan.target.nodeFile)}`);
+            return 0;
+        }
+        if (plan.native.stageOnly !== true) {
+            cargoBuildNative(buildRequest(plan));
+        }
+        const artifact = findNativeArtifact(buildRequest(plan));
+        const dest = stageBuiltArtifact(artifact, path.resolve(plan.root, plan.target.dir), plan.target.nodeFile);
+        console.log(`[wae] native addon staged at ${dest}`);
+        return 0;
+    } catch (error) {
+        return buildFailure('native build', error);
+    }
+}
+
+async function cmdNativeStage(options: ParsedOptions): Promise<number> {
+    try {
+        const plan = nativePlan(options);
+        const artifact = findNativeArtifact(buildRequest(plan));
+        if (options['dry-run'] === true) {
+            console.log(`[wae] native stage would copy ${artifact} → ${path.join(plan.root, plan.target.dir, plan.target.nodeFile)}`);
+            return 0;
+        }
+        const dest = stageBuiltArtifact(artifact, path.resolve(plan.root, plan.target.dir), plan.target.nodeFile);
+        console.log(`[wae] native addon staged at ${dest}`);
+        return 0;
+    } catch (error) {
+        return buildFailure('native stage', error);
+    }
+}
+
+function buildRequest(plan: NativePlan) {
+    return {
+        root: plan.root,
+        crate: plan.native.crate,
+        ...(plan.native.cdylib === undefined ? {} : { cdylib: plan.native.cdylib }),
+        profile: plan.native.profile ?? 'release' as const,
+        ...(plan.native.buildDir === undefined ? {} : { buildDir: plan.native.buildDir }),
+    };
+}
+
+/** Select the native target by key; refuses cross-compiled claims by default. */
+function selectNativeTarget(native: WaeNativeConfig, override: string | undefined): WaeNativeTarget {
+    const host = `${process.platform}-${process.arch}`;
+    const declared = native.targets.map((target) => `${target.platform}-${target.arch}`);
+    const key = override ?? (native.targetEnv === undefined ? undefined : process.env[native.targetEnv]?.trim()) ?? host;
+    const target = native.targets.find((entry) => `${entry.platform}-${entry.arch}` === key);
+    if (!target) {
+        throw new WaeBuildError(
+            BUILD_CODES.targetMissing,
+            `native target \`${key}\` is not declared in ${WAE_CONFIG_FILE}; declared: ${declared.join(', ')}`,
+            { platform: key, attempts: declared },
+        );
+    }
+    if (key !== host && (native.crossCompile ?? 'reject') === 'reject') {
+        throw new WaeBuildError(
+            BUILD_CODES.targetMissing,
+            `native target \`${key}\` differs from host \`${host}\`; cross compilation is rejected, run the build on that platform`,
+            { platform: key, attempts: declared },
+        );
+    }
+    return target;
+}
+
+type SmokeAddon = {
+    version(): string;
+    capabilities(): { platform: string; arch: string; audit: boolean; version: string; atomic?: string[] };
+    probe(): { ok: boolean; platform: string; arch: string };
+    auditQuery(filter?: { capability?: string; limit?: number }): string;
+};
+
+async function cmdNativeSmoke(options: ParsedOptions): Promise<number> {
+    try {
+        const plan = nativePlan(options);
+        const key = `${plan.target.platform}-${plan.target.arch}`;
+        const dir = path.resolve(plan.root, plan.target.dir);
+        const addonPath = path.join(dir, plan.target.nodeFile);
+        if (!fs.existsSync(addonPath)) {
+            throw new WaeBuildError(
+                BUILD_CODES.artifactMissing,
+                `native smoke cannot find the staged addon at ${addonPath}; run \`wae native build\` first`,
+                { platform: key, attempts: [addonPath] },
+            );
+        }
+        const manifestPath = path.join(dir, 'package.json');
+        const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as {
+            name: string;
+            version: string;
+            os: string[];
+            cpu: string[];
+        };
+        if (!manifest.os.includes(plan.target.platform) || !manifest.cpu.includes(plan.target.arch)) {
+            throw new WaeBuildError(
+                BUILD_CODES.platformPackageInvalid,
+                `platform package declares os/cpu ${manifest.os.join(',')}/${manifest.cpu.join(',')} but the target is ${key}`,
+                { platform: key, attempts: [manifestPath] },
+            );
+        }
+
+        const auditDir = process.env.WAE_AUDIT_DIR ?? fs.mkdtempSync(path.join(os.tmpdir(), 'wae-native-audit-'));
+        process.env.WAE_AUDIT_DIR = auditDir;
+        const addon = createRequire(import.meta.url)(addonPath) as SmokeAddon;
+        const version = addon.version();
+        if (version !== manifest.version) {
+            throw new WaeBuildError(
+                BUILD_CODES.platformPackageInvalid,
+                `native addon version ${version || '<empty>'} does not match ${manifest.name} ${manifest.version}`,
+                { platform: key },
+            );
+        }
+        const capabilities = addon.capabilities();
+        const expectedPlatform = NATIVE_PLATFORM_NAMES[plan.target.platform];
+        const expectedArch = NATIVE_ARCH_NAMES[plan.target.arch];
+        if (capabilities.platform !== expectedPlatform || capabilities.arch !== expectedArch) {
+            throw new WaeBuildError(
+                BUILD_CODES.platformPackageInvalid,
+                `capabilities mismatch: got ${capabilities.platform}/${capabilities.arch}, expected ${expectedPlatform}/${expectedArch}`,
+                { platform: key },
+            );
+        }
+        if (capabilities.version !== version) {
+            throw new WaeBuildError(
+                BUILD_CODES.platformPackageInvalid,
+                `capabilities version ${capabilities.version} does not match version() ${version}`,
+                { platform: key },
+            );
+        }
+        if (!Array.isArray(capabilities.atomic) || capabilities.atomic.length === 0) {
+            throw new WaeBuildError(BUILD_CODES.platformPackageInvalid, 'capabilities did not list atomic native exports', {
+                platform: key,
+            });
+        }
+        const probe = addon.probe();
+        if (probe.ok !== true) {
+            throw new WaeBuildError(BUILD_CODES.platformPackageInvalid, 'native probe did not report ok', { platform: key });
+        }
+        const entries = JSON.parse(addon.auditQuery({ capability: 'wae.native.probe', limit: 5 })) as unknown;
+        if (!Array.isArray(entries) || entries.length === 0) {
+            throw new WaeBuildError(BUILD_CODES.platformPackageInvalid, 'audited probe did not produce a queryable audit entry', {
+                platform: key,
+            });
+        }
+        const summary = {
+            addon: addonPath,
+            version,
+            platform: capabilities.platform,
+            arch: capabilities.arch,
+            auditEntries: entries.length,
+        };
+        if (options.json === true) {
+            console.log(JSON.stringify(summary, null, 2));
+        } else {
+            console.log(
+                `[wae] native smoke ok: ${addonPath} version=${version} platform=${capabilities.platform} arch=${capabilities.arch} auditEntries=${entries.length}`,
+            );
+        }
+        return 0;
+    } catch (error) {
+        if (error instanceof NativeLoadError || error instanceof NativeUnsupportedError) {
+            return nativeFailure(error);
+        }
+        return buildFailure('native smoke', error);
     }
 }
 
@@ -247,28 +505,6 @@ export function resolvePublishIntent(
         return { kind: 'placeholder' };
     }
     return { kind: 'verify' };
-}
-
-/** Read `version` from the `[workspace.package]` table of a Cargo workspace file. */
-export function readWorkspaceVersion(cargoPath: string): string | undefined {
-    let text: string;
-    try {
-        text = fs.readFileSync(cargoPath, 'utf8');
-    } catch {
-        return undefined;
-    }
-    let inWorkspacePackage = false;
-    for (const raw of text.split(/\r?\n/)) {
-        const line = raw.replace(/#.*$/, '').trim();
-        if (line.startsWith('[')) {
-            inWorkspacePackage = line === '[workspace.package]';
-            continue;
-        }
-        if (!inWorkspacePackage) continue;
-        const match = line.match(/^version\s*=\s*"([^"]+)"/);
-        if (match) return match[1];
-    }
-    return undefined;
 }
 
 /** Read and validate one npm package manifest (real package, exact version). */
