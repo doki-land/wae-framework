@@ -6,7 +6,12 @@
 
 use std::{
     ffi::c_void,
-    sync::atomic::{AtomicU8, Ordering},
+    fs::{File, OpenOptions},
+    io::Write,
+    sync::{
+        Mutex, OnceLock,
+        atomic::{AtomicU8, Ordering},
+    },
 };
 
 use windows::Win32::{
@@ -23,11 +28,43 @@ use windows::Win32::{
 /// 诊断开关环境变量：设为 `1`（或 `true`）时把 DPI 观测值打到 stderr。
 pub(crate) const DIAG_ENV: &str = "WAE_WEBVIEW_DIAG";
 
+/// 诊断文件日志路径的环境变量。
+///
+/// GUI 宿主会隐藏系统为它新建的控制台窗口，之后 stderr 不再有人看得见；设置
+/// 该路径后每条宿主日志同时追加到文件。路径由应用决定，宿主只负责写。
+pub(crate) const LOG_FILE_ENV: &str = "WAE_WEBVIEW_LOG_FILE";
+
 const DIAG_UNKNOWN: u8 = 0;
 const DIAG_OFF: u8 = 1;
 const DIAG_ON: u8 = 2;
 
 static DIAG: AtomicU8 = AtomicU8::new(DIAG_UNKNOWN);
+
+static LOG_SINK: OnceLock<Option<Mutex<File>>> = OnceLock::new();
+
+/// 安装文件日志接收器；未设置路径或打开失败时退化为只写 stderr。
+pub(crate) fn install_log_sink() {
+    let sink = std::env::var_os(LOG_FILE_ENV).and_then(|path| OpenOptions::new().create(true).append(true).open(path).ok()).map(Mutex::new);
+    let _ = LOG_SINK.set(sink);
+}
+
+/// 输出一条结构化宿主日志：stderr 与文件（若已安装）各写一份。
+///
+/// 文件行带 `ts`（Unix 毫秒），用于把「用户看到的旧行为」与具体启动批次对齐。
+pub(crate) fn emit(message: impl AsRef<str>) {
+    let line = format!("[wae-webview] {}", message.as_ref());
+    eprintln!("{line}");
+    let Some(Some(sink)) = LOG_SINK.get()
+    else {
+        return;
+    };
+    let Ok(mut file) = sink.lock()
+    else {
+        return;
+    };
+    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|elapsed| elapsed.as_millis()).unwrap_or_default();
+    let _ = writeln!(file, "ts={stamp} {line}");
+}
 
 /// 诊断是否开启（只读环境变量一次）。
 pub(crate) fn diag_enabled() -> bool {
@@ -40,10 +77,10 @@ pub(crate) fn diag_enabled() -> bool {
     cached == DIAG_ON
 }
 
-/// 输出一条以 `[wae-webview]` 开头的诊断行。
+/// 输出一条以 `[wae-webview]` 开头的诊断行（仅在诊断开关打开时）。
 pub(crate) fn diag(message: impl AsRef<str>) {
     if diag_enabled() {
-        eprintln!("[wae-webview] {}", message.as_ref());
+        emit(message);
     }
 }
 

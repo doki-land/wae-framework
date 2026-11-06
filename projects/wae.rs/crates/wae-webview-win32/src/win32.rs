@@ -7,10 +7,11 @@ use std::{
 };
 
 use webview2_com::{
-    AddScriptToExecuteOnDocumentCreatedCompletedHandler, CreateCoreWebView2ControllerCompletedHandler,
+    AcceleratorKeyPressedEventHandler, AddScriptToExecuteOnDocumentCreatedCompletedHandler, CreateCoreWebView2ControllerCompletedHandler,
     CreateCoreWebView2EnvironmentCompletedHandler,
     Microsoft::Web::WebView2::Win32::{
-        COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW, COREWEBVIEW2_WEB_ERROR_STATUS, COREWEBVIEW2_WEB_ERROR_STATUS_CANNOT_CONNECT,
+        COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW, COREWEBVIEW2_KEY_EVENT_KIND, COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN,
+        COREWEBVIEW2_WEB_ERROR_STATUS, COREWEBVIEW2_WEB_ERROR_STATUS_CANNOT_CONNECT,
         COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_COMMON_NAME_IS_INCORRECT, COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_EXPIRED,
         COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_IS_INVALID, COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_REVOKED,
         COREWEBVIEW2_WEB_ERROR_STATUS_CLIENT_CERTIFICATE_CONTAINS_ERRORS, COREWEBVIEW2_WEB_ERROR_STATUS_CONNECTION_ABORTED,
@@ -34,11 +35,15 @@ use windows::{
             Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoTaskMemFree},
             LibraryLoader::GetModuleHandleW,
         },
-        UI::WindowsAndMessaging::{
-            CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GWLP_USERDATA, GetClientRect,
-            GetWindowLongPtrW, IDC_ARROW, IsWindow, LoadCursorW, MSG, PM_REMOVE, PeekMessageW, PostMessageW, PostQuitMessage, RegisterClassW,
-            SW_SHOW, SWP_NOACTIVATE, SWP_NOZORDER, SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, ShowWindow, TranslateMessage,
-            WINDOW_EX_STYLE, WM_CLOSE, WM_CREATE, WM_DESTROY, WM_DPICHANGED, WM_QUIT, WM_SIZE, WNDCLASSW, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+        UI::{
+            Input::KeyboardAndMouse::VK_F12,
+            WindowsAndMessaging::{
+                CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GWLP_USERDATA, GetClientRect,
+                GetWindowLongPtrW, IDC_ARROW, IsWindow, LoadCursorW, MSG, PM_REMOVE, PeekMessageW, PostMessageW, PostQuitMessage,
+                RegisterClassW, SW_SHOW, SWP_NOACTIVATE, SWP_NOZORDER, SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, ShowWindow,
+                TranslateMessage, WINDOW_EX_STYLE, WM_CLOSE, WM_CREATE, WM_DESTROY, WM_DPICHANGED, WM_QUIT, WM_SIZE, WNDCLASSW,
+                WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+            },
         },
     },
     core::{Interface, PCWSTR, PWSTR, w},
@@ -46,7 +51,7 @@ use windows::{
 
 use wae_webview::{IpcHandler, IpcOutcome, OpenOptions, Result, WebViewBackend, WebViewError};
 
-use crate::dpi;
+use crate::{console, dpi};
 
 type EventRegistrationToken = i64;
 
@@ -154,7 +159,7 @@ impl DesktopState {
             format!("页面未加载: url={url} web_error_status={}({})", web_error_status_name(status), status.0),
         )
         .with_attempted(vec![url.to_string()]);
-        eprintln!("[wae-webview] navigation.failed {error}");
+        dpi::emit(format!("navigation.failed {error}"));
         // 同一次加载可能产生多个 NavigationCompleted（首次尝试与重试），
         // 退出摘要取最后一个，它才是最终失败原因。
         *self.navigation_error.lock().expect("navigation lock") = Some(error);
@@ -170,6 +175,22 @@ impl DesktopState {
             webview.PostWebMessageAsString(PCWSTR(wide.as_ptr())).map_err(|e| host_failure("post_message_failed", "post_message", &e))?;
         }
         Ok(())
+    }
+
+    /// 打开 WebView2 DevTools（独立窗口）。
+    ///
+    /// 可见控制台不再是调试入口：`F12` 与 `WAE_WEBVIEW_DIAG=1` 都经这里打开
+    /// DevTools，页面控制台、网络与 DOM 检查照旧可用。
+    fn open_dev_tools(&self, reason: &str) {
+        let Some(webview) = self.webview.as_ref()
+        else {
+            dpi::emit(format!("devtools.open_failed reason={reason} error=webview_not_ready"));
+            return;
+        };
+        match unsafe { webview.OpenDevToolsWindow() } {
+            Ok(()) => dpi::emit(format!("devtools.open reason={reason}")),
+            Err(error) => dpi::emit(format!("devtools.open_failed reason={reason} hresult={:#x} message={}", error.code().0, error.message())),
+        }
     }
 }
 
@@ -394,6 +415,42 @@ fn attach_webview(state: *mut DesktopState, controller: ICoreWebView2Controller)
             .map_err(|e| host_failure("webview2_navigation_events_failed", "attach_navigation_events", &e))?;
     }
 
+    // F12 是宿主约定：WebView2 先把按键交给宿主（`AcceleratorKeyPressed`），
+    // 页面有焦点时也只有这里能拦到。DevTools 由此打开，不再依赖可见控制台。
+    let mut accelerator_token = EventRegistrationToken::default();
+    let accelerator_handler = AcceleratorKeyPressedEventHandler::create(Box::new(move |_, args| {
+        let Some(args) = args
+        else {
+            return Ok(());
+        };
+        let mut kind = COREWEBVIEW2_KEY_EVENT_KIND::default();
+        unsafe {
+            args.KeyEventKind(&mut kind)?;
+        }
+        if kind != COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN {
+            return Ok(());
+        }
+        let mut key = 0u32;
+        unsafe {
+            args.VirtualKey(&mut key)?;
+        }
+        if key != u32::from(VK_F12.0) {
+            return Ok(());
+        }
+        let desktop = unsafe { &*(state_addr as *const DesktopState) };
+        desktop.open_dev_tools("f12");
+        unsafe {
+            args.SetHandled(true)?;
+        }
+        Ok(())
+    }));
+
+    unsafe {
+        controller
+            .add_AcceleratorKeyPressed(&accelerator_handler, &mut accelerator_token)
+            .map_err(|e| host_failure("webview2_accelerator_failed", "attach_accelerator", &e))?;
+    }
+
     // 虚拟主机把不存在的无扩展名路径当作连接失败，SPA 直达路由因此白屏。
     // 回退挂在导航事件上，覆盖首屏、重载与站内链接跳转。
     attach_spa_fallback(state, &webview)?;
@@ -613,7 +670,7 @@ impl Win32Backend {
         );
         dpi::diag(line.clone());
         if self.pumps <= 2 {
-            eprintln!("[wae-webview] unexpected_exit {line}");
+            dpi::emit(format!("unexpected_exit {line}"));
         }
     }
 }
@@ -622,6 +679,11 @@ impl WebViewBackend for Win32Backend {
     const NAME: &'static str = "win32";
 
     fn open(options: OpenOptions, handler: Box<dyn IpcHandler>) -> Result<Self> {
+        // 先装文件日志再收控制台：隐藏之后 stderr 不再有人看得见。
+        dpi::install_log_sink();
+        let console = console::hide_orphan_console();
+        dpi::emit(format!("console.window present={} attached_processes={} hidden={}", console.window, console.processes, console.hidden));
+
         // 必须在任何窗口创建之前声明 Per-Monitor V2；晚于窗口创建则无效，
         // 进程仍会按位图整体拉伸，页面与文字发虚。
         let awareness = dpi::ensure_process_dpi_awareness();
@@ -702,6 +764,10 @@ impl WebViewBackend for Win32Backend {
             let environment = create_environment()?;
             let controller = create_controller(hwnd, &environment)?;
             attach_webview(box_state.as_mut(), controller)?;
+
+            if dpi::diag_enabled() {
+                box_state.open_dev_tools("diag");
+            }
 
             Ok(Self { state: box_state, quit: false, pumps: 0 })
         }
