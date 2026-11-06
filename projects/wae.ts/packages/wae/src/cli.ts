@@ -7,15 +7,16 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createCli, type ParsedOptions } from '@wae/commander';
-import { copyDir, removePath, rewritePlaceholders } from './fs-utils.js';
+import { copyDir, removePath, rewritePlaceholders, SCAFFOLD_NAME_PATTERN } from './fs-utils.js';
 import { cargoBuildRelease, stageNative } from './native-stage.js';
-import { localesRoot, openToolsTemplateRoot } from './paths.js';
+import { localesRoot, SCAFFOLD_TEMPLATES, type ScaffoldTemplate, templateRoot } from './paths.js';
 
 /** Build the product CLI (tests may call this directly). */
 export function buildCli() {
     const cli = createCli('wae').locales(localesRoot()).intro('cli.intro');
 
     cli.command('new', 'cli.cmd.new')
+        .option('--template <name>', 'cli.opt.template', { default: 'open-tools' })
         .option('--with-gui', 'cli.opt.with-gui')
         .option('--out <dir>', 'cli.opt.out', { default: '.' })
         .actionCtx(async (options, args) => cmdNew(options, args));
@@ -43,15 +44,28 @@ export function buildCli() {
     return cli;
 }
 
+function isScaffoldTemplate(value: string): value is ScaffoldTemplate {
+    return (SCAFFOLD_TEMPLATES as readonly string[]).includes(value);
+}
+
 async function cmdNew(options: ParsedOptions, args: string[]): Promise<number> {
     const name = args[0]?.trim();
     if (!name) {
-        console.error('wae new requires a name: wae new <name> [--with-gui] [--out <dir>]');
+        console.error('wae new requires a name: wae new <name> [--template open-tools|open-app] [--out <dir>]');
+        return 2;
+    }
+    if (!SCAFFOLD_NAME_PATTERN.test(name)) {
+        console.error(`invalid app name "${name}": use lowercase kebab-case such as "open-finder"`);
+        return 2;
+    }
+    const templateName = typeof options.template === 'string' ? options.template : 'open-tools';
+    if (!isScaffoldTemplate(templateName)) {
+        console.error(`unknown template "${templateName}": choose one of ${SCAFFOLD_TEMPLATES.join(', ')}`);
         return 2;
     }
     const outDir = typeof options.out === 'string' ? options.out : '.';
-    const withGui = Boolean(options['with-gui']);
-    const template = openToolsTemplateRoot();
+    const withGui = templateName === 'open-app' ? true : Boolean(options['with-gui']);
+    const template = templateRoot(templateName);
     if (!fs.existsSync(template)) {
         console.error(`template directory not found: ${template}`);
         return 1;
@@ -63,11 +77,11 @@ async function cmdNew(options: ParsedOptions, args: string[]): Promise<number> {
     }
     copyDir(template, dest);
     rewritePlaceholders(dest, name);
-    if (!withGui) {
+    if (templateName === 'open-tools' && !withGui) {
         removePath(path.join(dest, 'gui'));
         removePath(path.join(dest, 'dist', 'gui'));
     }
-    console.log(`created ${dest} (with_gui=${withGui})`);
+    console.log(`created ${dest} (template=${templateName}, with_gui=${withGui})`);
     return 0;
 }
 

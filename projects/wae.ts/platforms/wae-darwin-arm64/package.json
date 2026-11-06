@@ -1,0 +1,25 @@
+{
+    "name": "@wae/wae-darwin-arm64",
+    "version": "0.0.1",
+    "description": "WAE native addon for macOS arm64",
+    "license": "MPL-2.0",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/oovm/wae.git",
+        "directory": "projects/wae.ts/packages/platforms/wae-darwin-arm64"
+    },
+    "os": [
+        "darwin"
+    ],
+    "cpu": [
+        "arm64"
+    ],
+    "main": "wae.darwin-arm64.node",
+    "files": [
+        "wae.darwin-arm64.node",
+      "readme.md"
+    ],
+    "engines": {
+        "node": ">=20"
+    }
+}

@@ -18,6 +18,10 @@
         ".": {
             "types": "./dist/cli.d.ts",
             "default": "./dist/cli.js"
+        },
+        "./native": {
+            "types": "./dist/native.d.ts",
+            "default": "./dist/native.js"
         }
     },
     "files": [
@@ -34,6 +38,11 @@
     },
     "dependencies": {
         "@wae/commander": "workspace:*"
+    },
+    "optionalDependencies": {
+        "@wae/wae-darwin-arm64": "0.0.1",
+        "@wae/wae-linux-x64": "0.0.1",
+        "@wae/wae-win32-x64": "0.0.1"
     },
     "devDependencies": {
         "@types/node": "^22.15.0",

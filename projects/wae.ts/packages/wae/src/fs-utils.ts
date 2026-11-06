@@ -4,7 +4,33 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const TEXT_EXTS = new Set(['.json', '.ts', '.toml', '.md', '.html', '.yml', '.yaml']);
+const TEXT_EXTS = new Set(['.json', '.ts', '.toml', '.md', '.html', '.vmz', '.yml', '.yaml']);
+
+/**
+ * Placeholder values derived from one scaffold name.
+ *
+ * - `{{name}}` → kebab-case app name (`demo-app`)
+ * - `{{nameSnake}}` → Rust crate / cdylib spelling (`demo_app`)
+ * - `{{namePascal}}` → product title spelling (`DemoApp`)
+ * - `{{nameUpperSnake}}` → env var and constant spelling (`DEMO_APP`)
+ */
+export function placeholderValues(name: string): Record<string, string> {
+    const nameSnake = name.replaceAll('-', '_');
+    const namePascal = name
+        .split('-')
+        .filter(Boolean)
+        .map((part) => part[0].toUpperCase() + part.slice(1))
+        .join('');
+    return {
+        name,
+        nameSnake,
+        namePascal,
+        nameUpperSnake: nameSnake.toUpperCase(),
+    };
+}
+
+/** Kebab-case app name that can become an npm package, crate, and binary. */
+export const SCAFFOLD_NAME_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 
 /** Recursively copy a directory. */
 export function copyDir(from: string, to: string): void {
@@ -20,8 +46,9 @@ export function copyDir(from: string, to: string): void {
     }
 }
 
-/** Recursively replace `{{name}}` in text files. */
+/** Recursively replace scaffold placeholders in text files. */
 export function rewritePlaceholders(dir: string, name: string): void {
+    const values = placeholderValues(name);
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
         const full = path.join(dir, entry.name);
         if (entry.isDirectory()) {
@@ -31,7 +58,10 @@ export function rewritePlaceholders(dir: string, name: string): void {
         const ext = path.extname(full).toLowerCase();
         if (!TEXT_EXTS.has(ext)) continue;
         const raw = fs.readFileSync(full, 'utf8');
-        const next = raw.replaceAll('{{name}}', name);
+        let next = raw;
+        for (const [token, value] of Object.entries(values)) {
+            next = next.replaceAll(`{{${token}}}`, value);
+        }
         if (next !== raw) fs.writeFileSync(full, next, 'utf8');
     }
 }

@@ -18,6 +18,8 @@ Cargo.lock
 # Node
 node_modules/
 pnpm-lock.yaml
+*.node
+*.wasm
 
 # Local npm 2FA (never commit)
 .env.placeholder.local
@@ -31,4 +33,7 @@ pnpm-lock.yaml
 
 # TypeScript package build
 dist/
+
+# Native addon artifacts staged into platform packages
+projects/wae.ts/packages/platforms/*/*.node
 
