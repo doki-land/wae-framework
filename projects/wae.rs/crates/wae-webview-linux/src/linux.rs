@@ -66,7 +66,7 @@ struct Libs {
 }
 
 impl Libs {
-    fn load() -> std::result::Result<Self, String> {
+    fn load() -> Result<Self> {
         let gtk = open_first(&["libgtk-3.so.0", "libgtk-3.so"])?;
         let webkit = open_first(&["libwebkit2gtk-4.1.so.0", "libwebkit2gtk-4.1.so"])?;
         let jsc = open_first(&["libjavascriptcoregtk-4.1.so.0", "libjavascriptcoregtk-4.1.so"])?;
@@ -104,23 +104,26 @@ impl Libs {
     }
 }
 
-fn open_first(names: &[&'static str]) -> std::result::Result<Library, String> {
-    let mut last_error = String::new();
+fn open_first(names: &[&'static str]) -> Result<Library> {
+    let mut failures = Vec::new();
     for name in names {
         // SAFETY: 只加载本机动态库，路径来自固定白名单。
         match unsafe { Library::new(*name) } {
             Ok(library) => return Ok(library),
-            Err(error) => last_error = format!("{name}: {error}"),
+            Err(error) => failures.push(format!("{name}: {error}")),
         }
     }
-    Err(format!("缺少系统运行库（{}）", last_error))
+    let message = format!("缺少系统运行库（{}）", failures.join("; "));
+    Err(WebViewError::host("webkit_dependency_missing", "load_libraries", message).with_attempted(failures))
 }
 
 /// # Safety
 ///
 /// 调用方保证 `T` 与库中导出符号的真实签名一致；库句柄必须比返回的函数指针存活更久。
-unsafe fn symbol<T: Copy>(library: &Library, name: &str) -> std::result::Result<T, String> {
-    let value = unsafe { library.get::<T>(name.as_bytes()) }.map_err(|error| format!("缺少符号 {name}: {error}"))?;
+unsafe fn symbol<T: Copy>(library: &Library, name: &str) -> Result<T> {
+    let value = unsafe { library.get::<T>(name.as_bytes()) }.map_err(|error| {
+        WebViewError::host("webkit_symbol_missing", "resolve_symbols", format!("缺少符号 {name}: {error}"))
+    })?;
     Ok(*value)
 }
 
@@ -186,14 +189,18 @@ impl WebViewBackend for LinuxBackend {
         if options.content_dir.is_none() && options.url.is_none() {
             return Err(WebViewError::Message("打开 WebView 需要 content_dir 或 url".into()));
         }
-        let libs = Libs::load().map_err(WebViewError::Message)?;
+        let libs = Libs::load()?;
 
         let mut argc: c_int = 0;
         let mut argv = [ptr::null_mut()];
         let mut argv_ptr = argv.as_mut_ptr();
         // SAFETY: 传入合法的 argc/argv 缓冲区；GTK 要求在同一线程后续驱动事件循环。
         if unsafe { (libs.api.gtk_init_check)(&mut argc, &mut argv_ptr) } == 0 {
-            return Err(WebViewError::Message("GTK 初始化失败（缺少图形显示环境或 DISPLAY / WAYLAND_DISPLAY 未设置）".into()));
+            return Err(WebViewError::host(
+                "gtk_init_failed",
+                "gtk_init",
+                "GTK 初始化失败（缺少图形显示环境或 DISPLAY / WAYLAND_DISPLAY 未设置）",
+            ));
         }
 
         let shared = Arc::new(Shared {
@@ -357,6 +364,19 @@ mod tests {
     fn file_url_encodes_reserved_bytes() {
         assert_eq!(file_url(Path::new("/tmp/wae app/index.html")), "file:///tmp/wae%20app/index.html");
         assert_eq!(file_url(Path::new("/tmp/wae/#1.html")), "file:///tmp/wae/%231.html");
+    }
+
+    #[test]
+    fn missing_runtime_libraries_report_a_dependency_failure() {
+        let error = open_first(&["libwae-missing-runtime-probe.so"]).err().expect("a missing library must fail");
+        assert_eq!(error.code(), Some("webkit_dependency_missing"));
+        assert_eq!(error.stage(), Some("load_libraries"));
+        match &error {
+            WebViewError::Host(failure) => {
+                assert!(failure.attempted.iter().any(|entry| entry.contains("libwae-missing-runtime-probe.so")));
+            }
+            other => panic!("unexpected error: {other}"),
+        }
     }
 
     #[test]
