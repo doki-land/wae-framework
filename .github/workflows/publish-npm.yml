@@ -117,15 +117,18 @@ jobs:
         run: |
           version="${RELEASE_TAG#v}"
           for name in @wae/wae-win32-x64 @wae/wae-darwin-arm64 @wae/wae-linux-x64 @wae/wae @wae/commander; do
-            for attempt in 1 2 3 4 5; do
-              if npm view "${name}@${version}" version > /dev/null 2>&1; then
+            path="${name/\//%2f}"
+            for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+              # The registry serves the new version before its packument catches up,
+              # and `npm view` reads a cached packument. Query the version endpoint.
+              if curl -sf "https://registry.npmjs.org/${path}/${version}" > /dev/null; then
                 echo "ok ${name}@${version}"
                 break
               fi
-              if [ "${attempt}" = 5 ]; then
-                echo "missing ${name}@${version} after 5 attempts"
+              if [ "${attempt}" = 12 ]; then
+                echo "missing ${name}@${version} after 12 attempts"
                 exit 1
               fi
-              sleep 3
+              sleep 10
             done
           done
