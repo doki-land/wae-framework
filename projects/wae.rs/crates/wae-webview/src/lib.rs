@@ -200,4 +200,13 @@ mod tests {
         assert_send::<Box<dyn IpcHandler>>();
         let _ = NoopHandler;
     }
+
+    #[test]
+    fn page_receive_script_escapes_js_metacharacters() {
+        assert_eq!(page_receive_script("a\"b"), "if (window.__waeReceive) window.__waeReceive(\"a\\\"b\");");
+        assert_eq!(page_receive_script("line\nline"), "if (window.__waeReceive) window.__waeReceive(\"line\\nline\");");
+        assert_eq!(page_receive_script("a\\b"), "if (window.__waeReceive) window.__waeReceive(\"a\\\\b\");");
+        assert!(page_receive_script("\u{2028}").contains("\\u2028"));
+        assert!(page_receive_script("\u{1}").contains("\\u0001"));
+    }
 }

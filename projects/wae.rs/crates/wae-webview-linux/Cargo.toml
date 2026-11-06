@@ -9,5 +9,6 @@ readme = "readme.md"
 description = "Linux WebKitGTK 后端"
 publish = false
 
-[dependencies]
+[target.'cfg(target_os = "linux")'.dependencies]
 wae-webview = { path = "../wae-webview" }
+libloading.workspace = true
