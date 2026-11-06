@@ -17,7 +17,6 @@ projects/wae.rs/crates/
   wae-macros          # 过程宏
   wae-napi            # 自研薄 Node-API（dyn-symbols，无 napi-rs）
   wae-webview-win32   # 自研 WebView2 宿主（pumpEvents）→ wae::webview
-  wae-dist            # 通用 cdylib → 平台包暂存 → wae::dist
   wae-audit           # 审计记录：固定 schema / 脱敏 / append-only JSONL / 查询 → wae::audit
 ```
 

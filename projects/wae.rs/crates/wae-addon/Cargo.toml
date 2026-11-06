@@ -15,4 +15,3 @@ crate-type = ["cdylib"]
 [dependencies]
 serde_json.workspace = true
 wae = { path = "../wae", default-features = false, features = ["audit"] }
-wae-dist = { path = "../wae-dist" }

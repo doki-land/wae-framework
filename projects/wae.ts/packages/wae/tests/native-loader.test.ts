@@ -146,7 +146,7 @@ test('native load failure keeps the original error as cause', () => {
 });
 
 test('inspectNative reports the resolved path, version, capabilities and audit wiring', () => {
-    const capabilities = { platform: 'windows', arch: 'x64', audit: true, version: '0.0.2', atomic: ['findArtifact'] };
+    const capabilities = { platform: 'windows', arch: 'x64', audit: true, version: '0.0.2', atomic: ['stageArtifact'] };
     const addon = path.join(HERE, 'wae.win32-x64.node');
     const report = inspectNative({
         platform: 'win32',

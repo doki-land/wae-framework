@@ -1,4 +1,4 @@
-//! 原子分发能力：找产物、暂存、平台包结构校验。
+//! 原子分发能力：暂存与平台包结构校验。
 //!
 //! 这些函数只接受调用方传入的显式路径与包名，不内嵌任何项目名、仓路径或编排逻辑。
 //! 预期失败返回 `{ ok: false, code, message }`，不抛异常。
@@ -64,27 +64,6 @@ fn string_array(ctx: &CallContext, entries: &[String]) -> Result<JsValue> {
         array.set_element(index as u32, ctx.env().string(entry)?)?;
     }
     Ok(array)
-}
-
-/// 按 Cargo 包名在给定 release 目录中查找 cdylib，返回 `{ ok, value: { path } }`。
-#[function(js_name = "findArtifact")]
-pub(crate) fn find_artifact(ctx: CallContext) -> Result<JsValue> {
-    let outcome = (|| -> std::result::Result<String, OpError> {
-        let release_dir = required_string(&ctx, "releaseDir")?;
-        let package = required_string(&ctx, "package")?;
-        let artifact = wae_dist::find_cdylib(Path::new(&release_dir), &package)
-            .map_err(|err| OpError::new(ARTIFACT_MISSING, format!("在 `{release_dir}` 下未找到包 `{package}` 的原生产物：{err}")))?;
-        Ok(artifact.display().to_string())
-    })();
-
-    match outcome {
-        Ok(path) => {
-            let value = ctx.env().object()?;
-            value.set_named("path", ctx.env().string(&path)?)?;
-            ok(&ctx, value)
-        }
-        Err(error) => fail(&ctx, error),
-    }
 }
 
 /// 把已构建的产物复制为平台包内的 `.node` 文件，返回 `{ ok, value: { path } }`。

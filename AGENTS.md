@@ -7,7 +7,7 @@ Rules for this WAE repository.
 ```text
 @wae/commander     i18n-first TypeScript CLI framework
 @wae/wae           meta CLI bin (new / build / dist / publish)
-projects/wae.rs/   Rust facade `wae` + `wae-macros` / `wae-napi` / `wae-webview-win32` / `wae-dist`
+projects/wae.rs/   Rust facade `wae` + `wae-macros` / `wae-napi` / `wae-webview-win32`
 projects/wae.ts/templates/   scaffolds for downstream apps (`wae new`)
 ```
 
