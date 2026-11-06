@@ -28,7 +28,7 @@ default-members = [
 [workspace.package]
 version = "0.0.1"
 edition = "2024"
-license = "MIT"
+license = "Apache-2.0"
 authors = ["WAE Team <team@wae.dev>"]
 repository = "https://github.com/oovm/wae"
 
