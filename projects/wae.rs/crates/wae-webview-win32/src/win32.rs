@@ -9,10 +9,20 @@ use std::{
 use webview2_com::{
     CreateCoreWebView2ControllerCompletedHandler, CreateCoreWebView2EnvironmentCompletedHandler,
     Microsoft::Web::WebView2::Win32::{
-        COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW, CreateCoreWebView2EnvironmentWithOptions, GetAvailableCoreWebView2BrowserVersionString,
-        ICoreWebView2, ICoreWebView2_3, ICoreWebView2Controller, ICoreWebView2Environment,
+        COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW, COREWEBVIEW2_WEB_ERROR_STATUS, COREWEBVIEW2_WEB_ERROR_STATUS_CANNOT_CONNECT,
+        COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_COMMON_NAME_IS_INCORRECT, COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_EXPIRED,
+        COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_IS_INVALID, COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_REVOKED,
+        COREWEBVIEW2_WEB_ERROR_STATUS_CLIENT_CERTIFICATE_CONTAINS_ERRORS, COREWEBVIEW2_WEB_ERROR_STATUS_CONNECTION_ABORTED,
+        COREWEBVIEW2_WEB_ERROR_STATUS_CONNECTION_RESET, COREWEBVIEW2_WEB_ERROR_STATUS_DISCONNECTED,
+        COREWEBVIEW2_WEB_ERROR_STATUS_ERROR_HTTP_INVALID_SERVER_RESPONSE, COREWEBVIEW2_WEB_ERROR_STATUS_HOST_NAME_NOT_RESOLVED,
+        COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED, COREWEBVIEW2_WEB_ERROR_STATUS_REDIRECT_FAILED,
+        COREWEBVIEW2_WEB_ERROR_STATUS_SERVER_UNREACHABLE, COREWEBVIEW2_WEB_ERROR_STATUS_TIMEOUT,
+        COREWEBVIEW2_WEB_ERROR_STATUS_UNEXPECTED_ERROR, COREWEBVIEW2_WEB_ERROR_STATUS_UNKNOWN,
+        COREWEBVIEW2_WEB_ERROR_STATUS_VALID_AUTHENTICATION_CREDENTIALS_REQUIRED,
+        COREWEBVIEW2_WEB_ERROR_STATUS_VALID_PROXY_AUTHENTICATION_REQUIRED, CreateCoreWebView2EnvironmentWithOptions,
+        GetAvailableCoreWebView2BrowserVersionString, ICoreWebView2, ICoreWebView2_3, ICoreWebView2Controller, ICoreWebView2Environment,
     },
-    WebMessageReceivedEventHandler, wait_with_pump,
+    NavigationCompletedEventHandler, WebMessageReceivedEventHandler, wait_with_pump,
 };
 use windows::{
     Win32::{
@@ -49,6 +59,8 @@ struct DesktopState {
     webview: Option<ICoreWebView2>,
     handler: Box<dyn IpcHandler>,
     pending_ipc: Mutex<VecDeque<String>>,
+    /// 最近一次导航失败的结构化错误，用于退出时复述并解释白屏。
+    navigation_error: Mutex<Option<WebViewError>>,
     alive: bool,
 }
 
@@ -116,6 +128,27 @@ impl DesktopState {
             dpi::physical_to_dip(client.right - client.left, window_dpi),
             dpi::physical_to_dip(client.bottom - client.top, window_dpi),
         ));
+    }
+
+    /// 记录 WebView2 导航结果；失败立即输出结构化错误，并在退出时复述。
+    ///
+    /// 没有这条记录时，映射或路径问题只表现为 Edge 错误页，进程仍认为窗口
+    /// 正常打开，CLI 只打印 `closed (win32)`。
+    fn report_navigation(&self, success: bool, status: COREWEBVIEW2_WEB_ERROR_STATUS, url: &str) {
+        if success {
+            dpi::diag(format!("navigation.completed ok url={url}"));
+            return;
+        }
+        let error = WebViewError::host(
+            "webview2_navigation_failed",
+            "navigate",
+            format!("页面未加载: url={url} web_error_status={}({})", web_error_status_name(status), status.0),
+        )
+        .with_attempted(vec![url.to_string()]);
+        eprintln!("[wae-webview] navigation.failed {error}");
+        // 同一次加载可能产生多个 NavigationCompleted（首次尝试与重试），
+        // 退出摘要取最后一个，它才是最终失败原因。
+        *self.navigation_error.lock().expect("navigation lock") = Some(error);
     }
 
     fn post_message(&self, json: &str) -> Result<()> {
@@ -193,6 +226,32 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
 
 fn host_failure(code: &'static str, stage: &'static str, error: &windows::core::Error) -> WebViewError {
     WebViewError::host(code, stage, error.message()).with_hresult(error.code().0)
+}
+
+/// `COREWEBVIEW2_WEB_ERROR_STATUS` 的可读名字，避免日志里只剩一个裸数字。
+fn web_error_status_name(status: COREWEBVIEW2_WEB_ERROR_STATUS) -> &'static str {
+    match status {
+        COREWEBVIEW2_WEB_ERROR_STATUS_UNKNOWN => "unknown",
+        COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_COMMON_NAME_IS_INCORRECT => "certificate_common_name_is_incorrect",
+        COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_EXPIRED => "certificate_expired",
+        COREWEBVIEW2_WEB_ERROR_STATUS_CLIENT_CERTIFICATE_CONTAINS_ERRORS => "client_certificate_contains_errors",
+        COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_REVOKED => "certificate_revoked",
+        COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_IS_INVALID => "certificate_is_invalid",
+        COREWEBVIEW2_WEB_ERROR_STATUS_SERVER_UNREACHABLE => "server_unreachable",
+        COREWEBVIEW2_WEB_ERROR_STATUS_TIMEOUT => "timeout",
+        COREWEBVIEW2_WEB_ERROR_STATUS_ERROR_HTTP_INVALID_SERVER_RESPONSE => "error_http_invalid_server_response",
+        COREWEBVIEW2_WEB_ERROR_STATUS_CONNECTION_ABORTED => "connection_aborted",
+        COREWEBVIEW2_WEB_ERROR_STATUS_CONNECTION_RESET => "connection_reset",
+        COREWEBVIEW2_WEB_ERROR_STATUS_DISCONNECTED => "disconnected",
+        COREWEBVIEW2_WEB_ERROR_STATUS_CANNOT_CONNECT => "cannot_connect",
+        COREWEBVIEW2_WEB_ERROR_STATUS_HOST_NAME_NOT_RESOLVED => "host_name_not_resolved",
+        COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED => "operation_canceled",
+        COREWEBVIEW2_WEB_ERROR_STATUS_REDIRECT_FAILED => "redirect_failed",
+        COREWEBVIEW2_WEB_ERROR_STATUS_UNEXPECTED_ERROR => "unexpected_error",
+        COREWEBVIEW2_WEB_ERROR_STATUS_VALID_AUTHENTICATION_CREDENTIALS_REQUIRED => "valid_authentication_credentials_required",
+        COREWEBVIEW2_WEB_ERROR_STATUS_VALID_PROXY_AUTHENTICATION_REQUIRED => "valid_proxy_authentication_required",
+        _ => "unrecognized_status",
+    }
 }
 
 /// WebView2 Evergreen Runtime 的常见探测位置，用于「运行时缺失」的排障提示。
@@ -298,6 +357,34 @@ fn attach_webview(state: *mut DesktopState, controller: ICoreWebView2Controller)
             .map_err(|e| host_failure("webview2_message_channel_failed", "attach_message_channel", &e))?;
     }
 
+    // 导航失败是「窗口在、页面白」的唯一可观测信号，必须订阅并结构化记录。
+    let mut navigation_token = EventRegistrationToken::default();
+    let navigation_handler = NavigationCompletedEventHandler::create(Box::new(move |sender, args| {
+        let (Some(sender), Some(args)) = (sender, args)
+        else {
+            return Ok(());
+        };
+        let mut success = windows::core::BOOL::default();
+        unsafe {
+            args.IsSuccess(&mut success)?;
+        }
+        let mut status = COREWEBVIEW2_WEB_ERROR_STATUS::default();
+        unsafe {
+            args.WebErrorStatus(&mut status)?;
+        }
+        let mut source = PWSTR::null();
+        let url = unsafe { sender.Source(&mut source) }.ok().and_then(|()| unsafe { source.to_string() }.ok()).unwrap_or_default();
+        let desktop = unsafe { &*(state_addr as *const DesktopState) };
+        desktop.report_navigation(success.as_bool(), status, &url);
+        Ok(())
+    }));
+
+    unsafe {
+        webview
+            .add_NavigationCompleted(&navigation_handler, &mut navigation_token)
+            .map_err(|e| host_failure("webview2_navigation_events_failed", "attach_navigation_events", &e))?;
+    }
+
     let desktop = unsafe { &mut *state };
     let navigate_url = resolve_navigate_url(&desktop.options, &webview)?;
 
@@ -366,9 +453,14 @@ impl Win32Backend {
     /// 记录退出原因；首两次 pump 就退出属于异常，必须留下结构化痕迹。
     fn report_exit(&self, reason: &'static str) {
         let is_window = unsafe { IsWindow(Some(self.state.hwnd)).as_bool() };
+        let navigation = self.state.navigation_error.lock().expect("navigation lock").as_ref().map(ToString::to_string);
         let line = format!(
-            "pump.exit reason={reason} pumps={} hwnd={:?} is_window={is_window} alive={} quit={}",
-            self.pumps, self.state.hwnd, self.state.alive, self.quit
+            "pump.exit reason={reason} pumps={} hwnd={:?} is_window={is_window} alive={} quit={} navigation_error=\"{}\"",
+            self.pumps,
+            self.state.hwnd,
+            self.state.alive,
+            self.quit,
+            navigation.as_deref().unwrap_or("none"),
         );
         dpi::diag(line.clone());
         if self.pumps <= 2 {
@@ -429,6 +521,7 @@ impl WebViewBackend for Win32Backend {
                 webview: None,
                 handler,
                 pending_ipc: Mutex::new(VecDeque::new()),
+                navigation_error: Mutex::new(None),
                 alive: true,
             });
 

@@ -40,6 +40,7 @@ fn unsupported_error_carries_capability_and_platform() {
             assert_eq!(*platform, current_platform());
         }
         WebViewError::Message(message) => panic!("unexpected message error: {message}"),
+        WebViewError::Host(failure) => panic!("unexpected host error: {failure:?}"),
     }
 }
 
