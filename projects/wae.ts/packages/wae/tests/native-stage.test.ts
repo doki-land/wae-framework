@@ -4,6 +4,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { findCdylib } from '../src/native-stage.ts';
+import { buildCli } from '../src/cli.ts';
+
+function stageProject(config: string): string {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wae-native-stage-'));
+    fs.writeFileSync(path.join(root, 'wae.config.ts'), config);
+    return root;
+}
 
 test('findCdylib resolves dll stem with hyphen to underscore', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wae-cdylib-'));
@@ -13,5 +20,64 @@ test('findCdylib resolves dll stem with hyphen to underscore', () => {
         assert.equal(findCdylib(dir, 'open-cleaner-napi'), artifact);
     } finally {
         fs.rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test('`native stage --dry-run` does not require a built artifact', async () => {
+    const root = stageProject(`
+export default defineConfig({
+    native: {
+        crate: 'tool-napi',
+        targets: [{
+            platform: '${process.platform}',
+            arch: '${process.arch}',
+            triple: 'host-triple',
+            package: '@scope/tool',
+            nodeFile: 'tool.node',
+            dir: 'platforms/tool',
+        }],
+    },
+});
+`);
+    try {
+        assert.equal(fs.existsSync(path.join(root, 'target')), false);
+        const code = await buildCli().parse(['native', 'stage', '--project', root, '--dry-run']);
+        assert.equal(code, 0);
+        assert.equal(fs.existsSync(path.join(root, 'platforms', 'tool', 'tool.node')), false);
+    } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test('`native stage` resolves a cross-compiled artifact under the triple directory', async () => {
+    const cross = process.platform === 'linux' ? { platform: 'win32', arch: 'x64' } : { platform: 'linux', arch: 'x64' };
+    const triple = 'cross-target-triple';
+    const root = stageProject(`
+export default defineConfig({
+    native: {
+        crate: 'tool-napi',
+        crossCompile: 'allow',
+        targets: [{
+            platform: '${cross.platform}',
+            arch: '${cross.arch}',
+            triple: '${triple}',
+            package: '@scope/tool-cross',
+            nodeFile: 'tool.node',
+            dir: 'platforms/tool',
+        }],
+    },
+});
+`);
+    try {
+        const built = path.join(root, 'target', triple, 'release');
+        fs.mkdirSync(built, { recursive: true });
+        fs.writeFileSync(path.join(built, 'tool_napi.node'), 'fake-addon');
+        const code = await buildCli().parse(['native', 'stage', '--project', root, '--target', `${cross.platform}-${cross.arch}`]);
+        assert.equal(code, 0);
+        const staged = path.join(root, 'platforms', 'tool', 'tool.node');
+        assert.equal(fs.existsSync(staged), true);
+        assert.equal(fs.readFileSync(staged, 'utf8'), 'fake-addon');
+    } finally {
+        fs.rmSync(root, { recursive: true, force: true });
     }
 });

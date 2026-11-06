@@ -230,13 +230,14 @@ async function cmdNativeBuild(options: ParsedOptions): Promise<number> {
 async function cmdNativeStage(options: ParsedOptions): Promise<number> {
     try {
         const plan = nativePlan(options);
-        const artifact = findNativeArtifact(buildRequest(plan));
+        const dest = path.join(plan.root, plan.target.dir, plan.target.nodeFile);
         if (options['dry-run'] === true) {
-            console.log(`[wae] native stage would copy ${artifact} → ${path.join(plan.root, plan.target.dir, plan.target.nodeFile)}`);
+            console.log(`[wae] native stage would copy the built cdylib for \`${plan.native.crate}\` → ${dest}`);
             return 0;
         }
-        const dest = stageBuiltArtifact(artifact, path.resolve(plan.root, plan.target.dir), plan.target.nodeFile);
-        console.log(`[wae] native addon staged at ${dest}`);
+        const artifact = findNativeArtifact(buildRequest(plan));
+        const staged = stageBuiltArtifact(artifact, path.resolve(plan.root, plan.target.dir), plan.target.nodeFile);
+        console.log(`[wae] native addon staged at ${staged}`);
         return 0;
     } catch (error) {
         return buildFailure('native stage', error);
@@ -244,12 +245,14 @@ async function cmdNativeStage(options: ParsedOptions): Promise<number> {
 }
 
 function buildRequest(plan: NativePlan) {
+    const cross = `${plan.target.platform}-${plan.target.arch}` !== `${process.platform}-${process.arch}`;
     return {
         root: plan.root,
         crate: plan.native.crate,
         ...(plan.native.cdylib === undefined ? {} : { cdylib: plan.native.cdylib }),
         profile: plan.native.profile ?? 'release' as const,
         ...(plan.native.buildDir === undefined ? {} : { buildDir: plan.native.buildDir }),
+        ...(cross ? { triple: plan.target.triple } : {}),
     };
 }
 
