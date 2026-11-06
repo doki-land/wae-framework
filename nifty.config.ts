@@ -7,11 +7,11 @@
 export default {
     publish: {
         packages: [
-            "@wae/commander",
-            "@wae/wae",
             "@wae/wae-darwin-arm64",
             "@wae/wae-linux-x64",
             "@wae/wae-win32-x64",
+            "@wae/commander",
+            "@wae/wae",
         ],
     },
     trust: {
