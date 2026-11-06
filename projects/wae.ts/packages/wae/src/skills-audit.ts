@@ -7,7 +7,8 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
+import type { Cli, CliSpec } from '@wae/commander';
 import { BUILD_CODES, WaeBuildError } from './build-error.js';
 import type { WaeSkillsPackage } from './config.js';
 
@@ -30,7 +31,7 @@ type AuditContext = {
     log: string[];
 };
 
-export function auditSkills(root: string, pkg: WaeSkillsPackage, onLine: (line: string) => void = () => {}): SkillsAuditResult {
+export async function auditSkills(root: string, pkg: WaeSkillsPackage, onLine: (line: string) => void = () => {}): Promise<SkillsAuditResult> {
     const log: string[] = [];
     const skillsRoot = path.resolve(root, pkg.dir);
     const appManifestPath = pkg.appPackageJson ? path.resolve(root, pkg.appPackageJson) : undefined;
@@ -46,7 +47,7 @@ export function auditSkills(root: string, pkg: WaeSkillsPackage, onLine: (line: 
     const cli = path.resolve(root, pkg.cliEntry);
 
     const context: AuditContext = { root, pkg, skillsRoot, commandName, cli, log };
-    runAudit(context, appManifestPath, skillsManifestPath);
+    await runAudit(context, appManifestPath, skillsManifestPath);
 
     const result: SkillsAuditResult = {
         skills: log.filter((line) => line.startsWith('ok ')).length,
@@ -58,7 +59,7 @@ export function auditSkills(root: string, pkg: WaeSkillsPackage, onLine: (line: 
     return result;
 }
 
-function runAudit(context: AuditContext, appManifestPath?: string, skillsManifestPath?: string): void {
+async function runAudit(context: AuditContext, appManifestPath?: string, skillsManifestPath?: string): Promise<void> {
     if (!fs.existsSync(context.cli)) {
         throw new WaeBuildError(
             BUILD_CODES.artifactMissing,
@@ -70,7 +71,7 @@ function runAudit(context: AuditContext, appManifestPath?: string, skillsManifes
         fail(`skills directory is missing: ${context.skillsRoot}`);
     }
 
-    const commands = commandTree(context);
+    const commands = await commandTree(context);
     if (appManifestPath && skillsManifestPath) {
         const app = readJson(appManifestPath);
         const skills = readJson(skillsManifestPath);
@@ -120,10 +121,10 @@ function runAudit(context: AuditContext, appManifestPath?: string, skillsManifes
         for (const invocation of invocations) {
             const tokens = invocation.split(/\s+/);
             const command = tokens[1];
-            if (command === undefined || !commands.has(command)) {
+            const allowed = command === undefined ? undefined : commands.get(command);
+            if (command === undefined || allowed === undefined) {
                 fail(`${dir}: unknown command \`${command ?? '<empty>'}\` in \`${invocation}\``);
             }
-            const allowed = flagsFor(context, command);
             const flags: string[] = [];
             for (const token of tokens.slice(2)) {
                 if (token.startsWith('<')) continue;
@@ -166,52 +167,42 @@ function countInvocations(log: string[]): number {
     return total;
 }
 
-function commandTree(context: AuditContext): Set<string> {
-    const lines = runCli(context, ['--help']).split(/\r?\n/);
-    const start = lines.findIndex((line) => line.trim() === 'Commands:');
-    if (start < 0) fail(`could not find the \`Commands:\` section in \`${context.commandName} --help\``);
-    const commands = new Set<string>();
-    for (let index = start + 1; index < lines.length; index += 1) {
-        const line = lines[index]!;
-        if (!line.trim()) break;
-        const match = line.match(/^\s{2,}([a-z][a-z0-9-]*)\s{2,}/);
-        if (match) commands.add(match[1]!);
+/** Command name → allowed flags, derived from the CLI module itself. */
+type CommandTree = Map<string, Set<string>>;
+
+async function commandTree(context: AuditContext): Promise<CommandTree> {
+    const cli = await loadCli(context);
+    let spec: CliSpec;
+    try {
+        spec = cli.describe();
+    } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        fail(`cannot describe \`${context.commandName}\`: ${detail}`);
     }
-    if (commands.size === 0) fail(`no commands parsed from \`${context.commandName} --help\``);
+    const commands: CommandTree = new Map();
+    for (const command of spec.commands) {
+        const name = command.names[0];
+        if (name === undefined) continue;
+        commands.set(name, new Set([...spec.options, '--help', ...command.options]));
+    }
+    if (commands.size === 0) fail(`no commands defined by \`${context.commandName}\``);
     return commands;
 }
 
-const flagCache = new Map<string, Set<string>>();
-
-function flagsFor(context: AuditContext, command: string): Set<string> {
-    const cacheKey = `${context.cli}\u0000${command}`;
-    const cached = flagCache.get(cacheKey);
-    if (cached) return cached;
-    const lines = runCli(context, [command, '--help']).split(/\r?\n/);
-    const start = lines.findIndex((line) => line.trim() === 'Options:');
-    if (start < 0) fail(`could not find the \`Options:\` section in \`${context.commandName} ${command} --help\``);
-    const flags = new Set<string>(['--help']);
-    for (let index = start + 1; index < lines.length; index += 1) {
-        const line = lines[index]!;
-        if (!line.trim() || /^\s{2,}[a-z][a-z0-9-]*\s{2,}/.test(line)) break;
-        const match = line.match(/^\s+(--[a-z0-9-]+)/);
-        if (match) flags.add(match[1]!);
-    }
-    flagCache.set(cacheKey, flags);
-    return flags;
-}
-
-function runCli(context: AuditContext, args: string[]): string {
+/** Import the built CLI in-process so no subprocess receives capabilities. */
+async function loadCli(context: AuditContext): Promise<Cli> {
+    let module: { cli?: Cli };
     try {
-        return execFileSync(process.execPath, [context.cli, ...args], {
-            encoding: 'utf8',
-            stdio: ['ignore', 'pipe', 'pipe'],
-            cwd: context.root,
-        });
+        module = (await import(pathToFileURL(context.cli).href)) as { cli?: Cli };
     } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
-        fail(`\`${context.commandName} ${args.join(' ')}\` failed: ${detail}`);
+        fail(`cannot load \`${context.cli}\`: ${detail}`);
     }
+    const cli = module.cli;
+    if (cli === undefined || typeof cli.describe !== 'function') {
+        fail(`\`${context.cli}\` must export \`cli\` created with \`@wae/commander\``);
+    }
+    return cli;
 }
 
 function assertNoOutOfPackageReferences(source: string, file: string, dir: string, skillsRoot: string): void {

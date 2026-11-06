@@ -167,7 +167,7 @@ async function cmdNew(options: ParsedOptions, args: string[]): Promise<number> {
 async function cmdBuild(options: ParsedOptions): Promise<number> {
     const startDir = typeof options.project === 'string' ? path.resolve(options.project) : process.cwd();
     try {
-        runBuild({
+        await runBuild({
             startDir,
             ...(typeof options.package === 'string' ? { packageOverride: options.package } : {}),
             ...(typeof options.target === 'string' ? { targetOverride: options.target } : {}),

@@ -69,11 +69,11 @@ function seedPlatform(root: string, overrides: Record<string, unknown> = {}): vo
     fs.writeFileSync(path.join(root, 'platforms', 'tool', 'tool.node'), 'fake-addon');
 }
 
-test('build fails with build_target_missing for an undeclared target', () => {
+test('build fails with build_target_missing for an undeclared target', async () => {
     const root = hostProject(`${baseConfig()}});
 `);
     try {
-        assert.throws(
+        await assert.rejects(
             () => runBuild({ startDir: root, targetOverride: 'plan9-vax', dryRun: true, log: () => {} }),
             (error: unknown) => error instanceof WaeBuildError
                 && error.code === BUILD_CODES.targetMissing
@@ -84,11 +84,11 @@ test('build fails with build_target_missing for an undeclared target', () => {
     }
 });
 
-test('build fails with build_artifact_missing when cargo produced nothing', () => {
+test('build fails with build_artifact_missing when cargo produced nothing', async () => {
     const root = hostProject(`${baseConfig()}});
 `);
     try {
-        assert.throws(
+        await assert.rejects(
             () => runBuild({ startDir: root, log: () => {} }),
             (error: unknown) => error instanceof WaeBuildError
                 && error.code === BUILD_CODES.artifactMissing,
@@ -98,13 +98,13 @@ test('build fails with build_artifact_missing when cargo produced nothing', () =
     }
 });
 
-test('build fails with build_platform_package_invalid when os/cpu disagree', () => {
+test('build fails with build_platform_package_invalid when os/cpu disagree', async () => {
     const root = hostProject(`${baseConfig()}});
 `);
     try {
         seedArtifact(root);
         seedPlatform(root, { os: ['plan9'], cpu: ['vax'] });
-        assert.throws(
+        await assert.rejects(
             () => runBuild({ startDir: root, log: () => {} }),
             (error: unknown) => error instanceof WaeBuildError
                 && error.code === BUILD_CODES.platformPackageInvalid
@@ -115,7 +115,7 @@ test('build fails with build_platform_package_invalid when os/cpu disagree', () 
     }
 });
 
-test('build fails with build_release_set_mismatch when the published set differs', () => {
+test('build fails with build_release_set_mismatch when the published set differs', async () => {
     const root = hostProject(`${baseConfig()}    release: {
         registry: 'https://registry.npmjs.org',
         tagPattern: '^v(\\\\d+\\\\.\\\\d+\\\\.\\\\d+)$',
@@ -131,7 +131,7 @@ test('build fails with build_release_set_mismatch when the published set differs
             version: '0.0.3',
             main: 'dist/index.js',
         });
-        assert.throws(
+        await assert.rejects(
             () => runBuild({ startDir: root, log: () => {} }),
             (error: unknown) => error instanceof WaeBuildError
                 && error.code === BUILD_CODES.releaseSetMismatch
@@ -142,7 +142,7 @@ test('build fails with build_release_set_mismatch when the published set differs
     }
 });
 
-test('dry run plans every step in order and writes nothing', () => {
+test('dry run plans every step in order and writes nothing', async () => {
     const root = hostProject(`${baseConfig()}    build: {
         stage: [{ from: 'apps/ui/dist', to: 'apps/tool/dist/ui' }],
         outputs: ['apps/tool/dist/ui/index.html'],
@@ -150,7 +150,7 @@ test('dry run plans every step in order and writes nothing', () => {
 });
 `);
     try {
-        const report = runBuild({ startDir: root, dryRun: true, log: () => {} });
+        const report = await runBuild({ startDir: root, dryRun: true, log: () => {} });
         assert.deepEqual(report.steps.map((step) => step.name), ['native', 'ts', 'ui', 'skills', 'staging']);
         assert.equal(report.dryRun, true);
         assert.equal(report.steps.every((step) => step.status !== 'ok'), true);
@@ -160,7 +160,7 @@ test('dry run plans every step in order and writes nothing', () => {
     }
 });
 
-test('a real build refuses to skip a missing stage source', () => {
+test('a real build refuses to skip a missing stage source', async () => {
     const root = hostProject(`${baseConfig()}    build: {
         stage: [{ from: 'apps/ui/dist', to: 'apps/tool/dist/ui' }],
     },
@@ -169,7 +169,7 @@ test('a real build refuses to skip a missing stage source', () => {
     try {
         seedArtifact(root);
         seedPlatform(root);
-        assert.throws(
+        await assert.rejects(
             () => runBuild({ startDir: root, log: () => {} }),
             (error: unknown) => error instanceof WaeBuildError
                 && error.code === BUILD_CODES.artifactMissing
@@ -180,7 +180,7 @@ test('a real build refuses to skip a missing stage source', () => {
     }
 });
 
-test('`build.steps` narrows a real build to the declared steps', () => {
+test('`build.steps` narrows a real build to the declared steps', async () => {
     const root = hostProject(`${baseConfig()}    build: {
         steps: [{ name: 'native' }],
         stage: [{ from: 'apps/ui/dist', to: 'apps/tool/dist/ui' }],
@@ -190,7 +190,7 @@ test('`build.steps` narrows a real build to the declared steps', () => {
     try {
         seedArtifact(root);
         seedPlatform(root);
-        const report = runBuild({ startDir: root, log: () => {} });
+        const report = await runBuild({ startDir: root, log: () => {} });
         assert.deepEqual(report.steps.map((step) => step.name), ['native']);
         assert.equal(report.steps[0]?.status, 'ok');
         assert.equal(fs.existsSync(path.join(root, 'apps', 'tool', 'dist', 'ui')), false);
@@ -199,7 +199,7 @@ test('`build.steps` narrows a real build to the declared steps', () => {
     }
 });
 
-test('staging copies the declared tree and verifies outputs', () => {
+test('staging copies the declared tree and verifies outputs', async () => {
     const root = hostProject(`${baseConfig()}    build: {
         stage: [{ from: 'apps/ui/dist', to: 'apps/tool/dist/ui', clean: true, ignore: ['notes.txt'] }],
         outputs: ['apps/tool/dist/ui/index.html'],
@@ -213,7 +213,7 @@ test('staging copies the declared tree and verifies outputs', () => {
         fs.mkdirSync(ui, { recursive: true });
         fs.writeFileSync(path.join(ui, 'index.html'), '<html></html>');
         fs.writeFileSync(path.join(ui, 'notes.txt'), 'ignored');
-        const report = runBuild({ startDir: root, log: () => {} });
+        const report = await runBuild({ startDir: root, log: () => {} });
         const staging = report.steps.find((step) => step.name === 'staging');
         assert.equal(staging?.status, 'ok');
         const target = path.join(root, 'apps', 'tool', 'dist', 'ui');

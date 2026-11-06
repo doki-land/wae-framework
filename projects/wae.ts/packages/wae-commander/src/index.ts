@@ -234,6 +234,23 @@ export interface Command {
     passthrough(): this;
 }
 
+/** Machine-readable command node for build tooling. */
+export type CliSpecCommand = {
+    /** Match tokens from `rawName`, first entry is canonical. */
+    names: string[];
+    /** Option tokens with leading dashes, excluding root-level options. */
+    options: string[];
+    children: CliSpecCommand[];
+};
+
+/** Machine-readable CLI description produced without parsing argv or rendering help. */
+export type CliSpec = {
+    name: string;
+    /** Root-level option tokens with leading dashes. */
+    options: string[];
+    commands: CliSpecCommand[];
+};
+
 export interface Cli {
     use(plugin: LocalizePlugin): this;
     catalog(loader: CatalogLoader): this;
@@ -256,6 +273,13 @@ export interface Cli {
     command(rawName: string, helpId: string): Command;
     /** Route structured action failures to a product-owned renderer. */
     onDiagnostic(handler: DiagnosticHandler): this;
+    /**
+     * Describe the registered command tree as plain data.
+     *
+     * Tooling reads this instead of running `--help` in a subprocess, so the
+     * description cannot drift from the real parser and cannot execute actions.
+     */
+    describe(): CliSpec;
     parse(argv?: string[]): Promise<number>;
 }
 
@@ -386,6 +410,14 @@ class CliBuilder implements Cli {
         if (typeof handler !== 'function') throw CliError.configError('commander::config::diagnostic_handler_not_function');
         this.diagnosticHandler = handler;
         return this;
+    }
+
+    describe(): CliSpec {
+        return {
+            name: this.name,
+            options: optionTokens(this.rootOptions),
+            commands: this.roots.map((root) => commandSpec(root.def)),
+        };
     }
 
     /** Help ids registered on this CLI (for {@link assertCatalogCoverage}). */
@@ -731,6 +763,29 @@ export function formatCommandHelp(
         lines.push(...optionSection);
     }
     return lines.join('\n').trimEnd();
+}
+
+function commandSpec(def: CommandDef): CliSpecCommand {
+    return {
+        names: [...def.names],
+        options: optionTokens(def.options),
+        children: def.children.map(commandSpec),
+    };
+}
+
+/** Render option aliases as flag tokens (`-o` for a short alias, `--out-dir` otherwise). */
+function optionTokens(options: OptionDef[]): string[] {
+    const seen = new Set<string>();
+    const tokens: string[] = [];
+    for (const option of options) {
+        for (const alias of option.aliases) {
+            const token = alias.length === 1 ? `-${alias}` : `--${alias}`;
+            if (seen.has(token)) continue;
+            seen.add(token);
+            tokens.push(token);
+        }
+    }
+    return tokens;
 }
 
 /** Union options declared on root commands (dedupe by key, stable first-seen order). */

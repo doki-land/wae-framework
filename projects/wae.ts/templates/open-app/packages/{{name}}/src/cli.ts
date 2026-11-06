@@ -8,6 +8,7 @@
  * - every mutating command supports `--dry-run`
  * - every command configures the audit actor before calling the native layer
  */
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -282,5 +283,20 @@ cli.command('version', 'cli.cmd.version')
         }
     });
 
-const code = await cli.parse(process.argv);
-process.exitCode = code;
+/** Exported for build tooling, which reads the command tree without running `--help`. */
+export { cli };
+
+/** True when this module is the process entry, following bin symlinks. */
+function isEntryPoint(entry: string): boolean {
+    try {
+        return fs.realpathSync(entry) === fs.realpathSync(fileURLToPath(import.meta.url));
+    }
+    catch {
+        return false;
+    }
+}
+
+const entry = process.argv[1];
+if (entry !== undefined && isEntryPoint(entry)) {
+    process.exitCode = await cli.parse(process.argv);
+}

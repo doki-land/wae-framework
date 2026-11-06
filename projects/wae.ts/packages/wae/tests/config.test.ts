@@ -179,13 +179,13 @@ test('loadConfig falls back to the default convention without a file', () => {
     }
 });
 
-test('--package override changes only the native crate', () => {
+test('--package override changes only the native crate', async () => {
     const root = tempDir();
     try {
         // Pin the target and allow cross compilation so this stays host-independent:
         // on Linux and macOS CI the fixture's only target is not the host.
         writeFile(path.join(root, WAE_CONFIG_FILE), FULL_CONFIG.replace("crossCompile: 'reject'", "crossCompile: 'allow'"));
-        const report = runBuild({
+        const report = await runBuild({
             startDir: root,
             packageOverride: 'other-napi',
             targetOverride: 'win32-x64',
@@ -203,7 +203,7 @@ test('--package override changes only the native crate', () => {
     }
 });
 
-test('--target override selects exactly one declared target', () => {
+test('--target override selects exactly one declared target', async () => {
     const root = tempDir();
     try {
         const host = `${process.platform}-${process.arch}`;
@@ -226,7 +226,7 @@ export default defineConfig({
 });
 `,
         );
-        const report = runBuild({ startDir: root, targetOverride: 'linux-x64', dryRun: true, log: () => {} });
+        const report = await runBuild({ startDir: root, targetOverride: 'linux-x64', dryRun: true, log: () => {} });
         const native = report.steps.find((step) => step.name === 'native');
         assert.match(native?.detail ?? '', /linux-x64/);
         assert.doesNotMatch(native?.detail ?? '', /win32-x64/);
@@ -236,12 +236,12 @@ export default defineConfig({
     }
 });
 
-test('default convention builds a pnpm workspace without a config file', () => {
+test('default convention builds a pnpm workspace without a config file', async () => {
     const root = tempDir();
     try {
         writeFile(path.join(root, 'pnpm-workspace.yaml'), 'packages: []\n');
         json(path.join(root, 'package.json'), { name: 'workspace', private: true });
-        const report = runBuild({ startDir: root, dryRun: true, log: () => {} });
+        const report = await runBuild({ startDir: root, dryRun: true, log: () => {} });
         assert.equal(report.source, 'default');
         assert.equal(report.steps[0]?.status, 'planned');
         assert.match(report.steps[0]?.detail ?? '', /workspace package/);
@@ -250,11 +250,11 @@ test('default convention builds a pnpm workspace without a config file', () => {
     }
 });
 
-test('default convention without a target fails with build_target_missing', () => {
+test('default convention without a target fails with build_target_missing', async () => {
     const root = tempDir();
     try {
         json(path.join(root, 'package.json'), { name: 'empty', private: true });
-        assert.throws(
+        await assert.rejects(
             () => runBuild({ startDir: root, dryRun: true, log: () => {} }),
             (error: unknown) => error instanceof WaeBuildError && error.code === BUILD_CODES.targetMissing,
         );

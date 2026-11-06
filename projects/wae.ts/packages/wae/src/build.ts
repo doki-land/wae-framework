@@ -63,7 +63,7 @@ type BuildContext = {
 type StepResult = { step: BuildStepReport; selected?: WaeNativeTarget };
 
 /** Run the canonical build and return a per-step report. */
-export function runBuild(options: BuildOptions): BuildReport {
+export async function runBuild(options: BuildOptions): Promise<BuildReport> {
     const log = options.log ?? ((line: string) => console.log(line));
     const loaded = loadConfig(options.startDir);
     const dryRun = Boolean(options.dryRun);
@@ -98,21 +98,21 @@ export function runBuild(options: BuildOptions): BuildReport {
     const runs = (name: WaeBuildStepName): boolean => declared === undefined || declared.includes(name);
     if (declared !== undefined) log(`[build] steps: ${declared.join(' → ')} (narrowed by \`build.steps\`)`);
 
-    const native = runs('native') ? runStep('native', () => runNativeStep(context, options.targetOverride), log) : undefined;
+    const native = runs('native') ? await runStep('native', () => runNativeStep(context, options.targetOverride), log) : undefined;
     const selected = native?.selected;
     if (native !== undefined) report.steps.push(native.step);
-    if (runs('ts')) report.steps.push(runStep('ts', () => runTsStep(context), log).step);
-    if (runs('ui')) report.steps.push(runStep('ui', () => runUiStep(context), log).step);
-    if (runs('skills')) report.steps.push(runStep('skills', () => runSkillsStep(context), log).step);
+    if (runs('ts')) report.steps.push((await runStep('ts', () => runTsStep(context), log)).step);
+    if (runs('ui')) report.steps.push((await runStep('ui', () => runUiStep(context), log)).step);
+    if (runs('skills')) report.steps.push((await runStep('skills', () => runSkillsStep(context), log)).step);
     if (runs('staging')) {
-        report.steps.push(runStep('staging', () => runStagingStep(context, selected), log).step);
+        report.steps.push((await runStep('staging', () => runStagingStep(context, selected), log)).step);
     }
     log(`[build] ok (${dryRun ? 'dry run' : 'built'} ${report.steps.length} step(s))`);
     return report;
 }
 
-function runStep(name: WaeBuildStepName, body: () => StepResult, log: (line: string) => void): StepResult {
-    const result = body();
+async function runStep(name: WaeBuildStepName, body: () => StepResult | Promise<StepResult>, log: (line: string) => void): Promise<StepResult> {
+    const result = await body();
     const prefix = result.step.status === 'skipped' ? 'skipped — ' : '';
     log(`[build] ${name}: ${prefix}${result.step.detail}`);
     return result;
@@ -229,7 +229,7 @@ function runUiStep(context: BuildContext): StepResult {
     return { step: { name: 'ui', status: 'ok', detail: `built \`${ui.package}\`` } };
 }
 
-function runSkillsStep(context: BuildContext): StepResult {
+async function runSkillsStep(context: BuildContext): Promise<StepResult> {
     const skills = context.config.skills;
     if (skills === undefined) {
         return { step: { name: 'skills', status: 'skipped', detail: '`skills` is not configured' } };
@@ -245,7 +245,7 @@ function runSkillsStep(context: BuildContext): StepResult {
     }
     let skillsCount = 0;
     for (const pkg of skills.packages) {
-        const result = auditSkills(context.root, pkg, (line) => context.log(`[build] skills: ${line}`));
+        const result = await auditSkills(context.root, pkg, (line) => context.log(`[build] skills: ${line}`));
         skillsCount += result.skills;
     }
     return { step: { name: 'skills', status: 'ok', detail: `${skillsCount} skill(s) across ${skills.packages.length} package(s)` } };
