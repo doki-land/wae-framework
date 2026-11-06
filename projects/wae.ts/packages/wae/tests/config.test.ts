@@ -174,9 +174,12 @@ test('--package override changes only the native crate', () => {
     const root = tempDir();
     try {
         writeFile(path.join(root, WAE_CONFIG_FILE), FULL_CONFIG);
+        // Pin the target so this stays host-independent: on Linux CI the default
+        // host target (`linux-x64`) is not part of the fixture.
         const report = runBuild({
             startDir: root,
             packageOverride: 'other-napi',
+            targetOverride: 'win32-x64',
             dryRun: true,
             log: () => {},
         });
