@@ -41,7 +41,7 @@ use windows::{
                 CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GWLP_USERDATA, GetClientRect,
                 GetWindowLongPtrW, IDC_ARROW, IsWindow, LoadCursorW, MSG, PM_REMOVE, PeekMessageW, PostMessageW, PostQuitMessage,
                 RegisterClassW, SW_SHOW, SWP_NOACTIVATE, SWP_NOZORDER, SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, ShowWindow,
-                TranslateMessage, WINDOW_EX_STYLE, WM_CLOSE, WM_CREATE, WM_DESTROY, WM_DPICHANGED, WM_QUIT, WM_SIZE, WNDCLASSW,
+                TranslateMessage, WINDOW_EX_STYLE, WM_CLOSE, WM_CREATE, WM_DESTROY, WM_DPICHANGED, WM_KEYDOWN, WM_QUIT, WM_SIZE, WNDCLASSW,
                 WS_OVERLAPPEDWINDOW, WS_VISIBLE,
             },
         },
@@ -237,6 +237,13 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
             }
             WM_WAE_IPC => {
                 state.dispatch_ipc();
+                LRESULT(0)
+            }
+            // 启动后键盘焦点停在顶层窗口（WebView2 子窗口未取得焦点），
+            // `AcceleratorKeyPressed` 收不到按键。这条分支覆盖该实测路径，
+            // 与 accelerator 分支互补，任一焦点位置按 F12 都能开 DevTools。
+            WM_KEYDOWN if wparam.0 == usize::from(VK_F12.0) => {
+                state.open_dev_tools("f12");
                 LRESULT(0)
             }
             WM_CLOSE => {
@@ -696,7 +703,7 @@ impl WebViewBackend for Win32Backend {
                 return Err(host_failure("com_initialize_failed", "initialize_com", &windows::core::Error::from_hresult(com)));
             }
 
-            let class_name = w!("WAE_OPEN_CLEANER_HOST");
+            let class_name = w!("WAE_WEBVIEW_HOST");
             let instance = GetModuleHandleW(None).map_err(|e| host_failure("window_class_failed", "load_module", &e))?;
 
             let wc = WNDCLASSW {
