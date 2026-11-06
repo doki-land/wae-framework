@@ -95,15 +95,19 @@ export function runBuild(options: BuildOptions): BuildReport {
         log,
     };
 
-    const native = runStep('native', () => runNativeStep(context, options.targetOverride), log);
-    const selected = native.selected;
-    report.steps.push(native.step);
-    report.steps.push(runStep('ts', () => runTsStep(context), log).step);
-    report.steps.push(runStep('ui', () => runUiStep(context), log).step);
-    report.steps.push(runStep('skills', () => runSkillsStep(context), log).step);
-    report.steps.push(
-        runStep('staging', () => runStagingStep(context, selected), log).step,
-    );
+    const declared = context.config.build?.steps?.map((step) => step.name);
+    const runs = (name: WaeBuildStepName): boolean => declared === undefined || declared.includes(name);
+    if (declared !== undefined) log(`[build] steps: ${declared.join(' → ')} (narrowed by \`build.steps\`)`);
+
+    const native = runs('native') ? runStep('native', () => runNativeStep(context, options.targetOverride), log) : undefined;
+    const selected = native?.selected;
+    if (native !== undefined) report.steps.push(native.step);
+    if (runs('ts')) report.steps.push(runStep('ts', () => runTsStep(context), log).step);
+    if (runs('ui')) report.steps.push(runStep('ui', () => runUiStep(context), log).step);
+    if (runs('skills')) report.steps.push(runStep('skills', () => runSkillsStep(context), log).step);
+    if (runs('staging')) {
+        report.steps.push(runStep('staging', () => runStagingStep(context, selected), log).step);
+    }
     log(`[build] ok (${dryRun ? 'dry run' : 'built'} ${report.steps.length} step(s))`);
     return report;
 }

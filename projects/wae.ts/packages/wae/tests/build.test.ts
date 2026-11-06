@@ -180,6 +180,25 @@ test('a real build refuses to skip a missing stage source', () => {
     }
 });
 
+test('`build.steps` narrows a real build to the declared steps', () => {
+    const root = hostProject(`${baseConfig()}    build: {
+        steps: [{ name: 'native' }],
+        stage: [{ from: 'apps/ui/dist', to: 'apps/tool/dist/ui' }],
+    },
+});
+`);
+    try {
+        seedArtifact(root);
+        seedPlatform(root);
+        const report = runBuild({ startDir: root, log: () => {} });
+        assert.deepEqual(report.steps.map((step) => step.name), ['native']);
+        assert.equal(report.steps[0]?.status, 'ok');
+        assert.equal(fs.existsSync(path.join(root, 'apps', 'tool', 'dist', 'ui')), false);
+    } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+    }
+});
+
 test('staging copies the declared tree and verifies outputs', () => {
     const root = hostProject(`${baseConfig()}    build: {
         stage: [{ from: 'apps/ui/dist', to: 'apps/tool/dist/ui', clean: true, ignore: ['notes.txt'] }],

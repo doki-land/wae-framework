@@ -128,6 +128,15 @@ test('unknown keys fail as config_invalid', () => {
     );
 });
 
+test('a narrowed `build.steps` list must include the steps it depends on', () => {
+    assert.throws(
+        () => parseConfigSource(`export default defineConfig({ build: { steps: [{ name: 'ts', dependsOn: ['native'] }] } });`),
+        (error: unknown) => error instanceof WaeConfigError && /does not run/.test(error.message),
+    );
+    const config = parseConfigSource(`export default defineConfig({ build: { steps: [{ name: 'native' }, { name: 'ts', dependsOn: ['native'] }] } });`);
+    assert.deepEqual(config.build?.steps?.map((step) => step.name), ['native', 'ts']);
+});
+
 test('native targets must line up with the declared platform packages', () => {
     const source = `
 export default defineConfig({

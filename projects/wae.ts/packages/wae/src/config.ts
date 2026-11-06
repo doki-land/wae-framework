@@ -688,6 +688,14 @@ function validateBuild(value: unknown, where: string): WaeBuildConfig {
             }
             steps.push(dependsOn ? { name, dependsOn } : { name });
         }
+        const declared = new Set(steps.map((step) => step.name));
+        for (const [index, step] of steps.entries()) {
+            for (const dependency of step.dependsOn ?? []) {
+                if (!declared.has(dependency)) {
+                    invalid(`${where}.steps[${index}].dependsOn`, `step \`${step.name}\` depends on \`${dependency}\`, which the narrowed list does not run`);
+                }
+            }
+        }
         build.steps = steps;
     }
 
