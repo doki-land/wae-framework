@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "projects/wae.rs/crates/wae",
+    "projects/wae.rs/crates/wae-addon",
     "projects/wae.rs/crates/wae-macros",
     "projects/wae.rs/crates/wae-napi",
     "projects/wae.rs/crates/wae-webview",
@@ -13,6 +14,7 @@ members = [
 ]
 default-members = [
     "projects/wae.rs/crates/wae",
+    "projects/wae.rs/crates/wae-addon",
     "projects/wae.rs/crates/wae-macros",
     "projects/wae.rs/crates/wae-napi",
     "projects/wae.rs/crates/wae-webview",
