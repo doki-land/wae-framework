@@ -121,9 +121,8 @@ fn open_first(names: &[&'static str]) -> Result<Library> {
 ///
 /// 调用方保证 `T` 与库中导出符号的真实签名一致；库句柄必须比返回的函数指针存活更久。
 unsafe fn symbol<T: Copy>(library: &Library, name: &str) -> Result<T> {
-    let value = unsafe { library.get::<T>(name.as_bytes()) }.map_err(|error| {
-        WebViewError::host("webkit_symbol_missing", "resolve_symbols", format!("缺少符号 {name}: {error}"))
-    })?;
+    let value = unsafe { library.get::<T>(name.as_bytes()) }
+        .map_err(|error| WebViewError::host("webkit_symbol_missing", "resolve_symbols", format!("缺少符号 {name}: {error}")))?;
     Ok(*value)
 }
 
