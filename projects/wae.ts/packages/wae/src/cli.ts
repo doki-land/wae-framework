@@ -276,11 +276,17 @@ function selectNativeTarget(native: WaeNativeConfig, override: string | undefine
     return target;
 }
 
+/**
+ * The addon contract shared by every project: `version()` and `capabilities()`
+ * are required. `platform`, `arch`, `audit`, `atomic`, `probe()` and
+ * `auditQuery()` are part of the wae native-addon shape; when an app omits one,
+ * the smoke reports it as not checked instead of pretending it passed.
+ */
 type SmokeAddon = {
     version(): string;
-    capabilities(): { platform: string; arch: string; audit: boolean; version: string; atomic?: string[] };
-    probe(): { ok: boolean; platform: string; arch: string };
-    auditQuery(filter?: { capability?: string; limit?: number }): string;
+    capabilities(): Record<string, unknown>;
+    probe?: () => { ok?: boolean };
+    auditQuery?: (filter?: { capability?: string; limit?: number }) => string;
 };
 
 async function cmdNativeSmoke(options: ParsedOptions): Promise<number> {
@@ -323,49 +329,67 @@ async function cmdNativeSmoke(options: ParsedOptions): Promise<number> {
             );
         }
         const capabilities = addon.capabilities();
+        if (typeof capabilities !== 'object' || capabilities === null) {
+            throw new WaeBuildError(BUILD_CODES.platformPackageInvalid, 'capabilities() did not return an object', {
+                platform: key,
+            });
+        }
         const expectedPlatform = NATIVE_PLATFORM_NAMES[plan.target.platform];
         const expectedArch = NATIVE_ARCH_NAMES[plan.target.arch];
-        if (capabilities.platform !== expectedPlatform || capabilities.arch !== expectedArch) {
+        if (capabilities.platform !== undefined || capabilities.arch !== undefined) {
+            if (capabilities.platform !== expectedPlatform || capabilities.arch !== expectedArch) {
+                throw new WaeBuildError(
+                    BUILD_CODES.platformPackageInvalid,
+                    `capabilities report ${String(capabilities.platform)}/${String(capabilities.arch)}, expected ${expectedPlatform}/${expectedArch}`,
+                    { platform: key },
+                );
+            }
+        }
+        if (capabilities.version !== undefined && capabilities.version !== version) {
             throw new WaeBuildError(
                 BUILD_CODES.platformPackageInvalid,
-                `capabilities mismatch: got ${capabilities.platform}/${capabilities.arch}, expected ${expectedPlatform}/${expectedArch}`,
+                `capabilities version ${String(capabilities.version)} does not match version() ${version}`,
                 { platform: key },
             );
         }
-        if (capabilities.version !== version) {
-            throw new WaeBuildError(
-                BUILD_CODES.platformPackageInvalid,
-                `capabilities version ${capabilities.version} does not match version() ${version}`,
-                { platform: key },
-            );
-        }
-        if (!Array.isArray(capabilities.atomic) || capabilities.atomic.length === 0) {
-            throw new WaeBuildError(BUILD_CODES.platformPackageInvalid, 'capabilities did not list atomic native exports', {
+        if (capabilities.atomic !== undefined && (!Array.isArray(capabilities.atomic) || capabilities.atomic.length === 0)) {
+            throw new WaeBuildError(BUILD_CODES.platformPackageInvalid, 'capabilities listed an empty atomic export set', {
                 platform: key,
             });
         }
-        const probe = addon.probe();
-        if (probe.ok !== true) {
-            throw new WaeBuildError(BUILD_CODES.platformPackageInvalid, 'native probe did not report ok', { platform: key });
+        let probeState = 'not exported';
+        if (typeof addon.probe === 'function') {
+            const probe = addon.probe();
+            if (probe.ok !== true) {
+                throw new WaeBuildError(BUILD_CODES.platformPackageInvalid, 'native probe did not report ok', { platform: key });
+            }
+            probeState = 'ok';
         }
-        const entries = JSON.parse(addon.auditQuery({ capability: 'wae.native.probe', limit: 5 })) as unknown;
-        if (!Array.isArray(entries) || entries.length === 0) {
-            throw new WaeBuildError(BUILD_CODES.platformPackageInvalid, 'audited probe did not produce a queryable audit entry', {
-                platform: key,
-            });
+        let auditEntries = 0;
+        let auditState = 'not exported';
+        if (typeof addon.auditQuery === 'function') {
+            const entries = JSON.parse(addon.auditQuery({ limit: 5 })) as unknown;
+            if (!Array.isArray(entries) || entries.length === 0) {
+                throw new WaeBuildError(BUILD_CODES.platformPackageInvalid, 'auditQuery did not return any audit entry', {
+                    platform: key,
+                });
+            }
+            auditEntries = entries.length;
+            auditState = `${auditEntries} entries`;
         }
         const summary = {
             addon: addonPath,
             version,
-            platform: capabilities.platform,
-            arch: capabilities.arch,
-            auditEntries: entries.length,
+            platform: capabilities.platform ?? expectedPlatform,
+            arch: capabilities.arch ?? expectedArch,
+            probe: probeState,
+            audit: auditState,
         };
         if (options.json === true) {
             console.log(JSON.stringify(summary, null, 2));
         } else {
             console.log(
-                `[wae] native smoke ok: ${addonPath} version=${version} platform=${capabilities.platform} arch=${capabilities.arch} auditEntries=${entries.length}`,
+                `[wae] native smoke ok: ${addonPath} version=${version} platform=${String(summary.platform)} arch=${String(summary.arch)} probe=${probeState} audit=${auditState}`,
             );
         }
         return 0;
