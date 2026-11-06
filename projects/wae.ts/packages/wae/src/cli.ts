@@ -38,7 +38,6 @@ export function buildCli() {
         .option('--tag <ref>', 'cli.opt.tag')
         .option('--cargo <path>', 'cli.opt.cargo')
         .option('--execute', 'cli.opt.execute')
-        .option('--ci', 'cli.opt.ci')
         .actionCtx(async (options) => cmdPublish(options));
 
     return cli;
@@ -127,36 +126,17 @@ export type PublishManifest = { dir: string; name: string; version: string };
 export type PublishIntent =
     | { kind: 'verify' }
     | { kind: 'placeholder' }
-    | { kind: 'ci' }
     | { kind: 'refused'; message: string };
 
 /**
- * Decide the publish mode. Real versions are only published from the
- * Trusted Publisher (OIDC) workflow; a local `--execute` is limited to the
- * `0.0.0` placeholder stub used to configure the npm trusted publisher.
+ * Decide the publish mode. Real versions are published by the Nifty release
+ * workflow; a local `--execute` is limited to the `0.0.0` placeholder stub
+ * used to configure the npm trusted publisher.
  */
 export function resolvePublishIntent(
     version: string,
-    options: { execute: boolean; ci: boolean; env: NodeJS.ProcessEnv },
+    options: { execute: boolean; env: NodeJS.ProcessEnv },
 ): PublishIntent {
-    if (options.execute && options.ci) {
-        return {
-            kind: 'refused',
-            message: 'use either --execute (0.0.0 placeholder stub) or --ci (Trusted Publisher OIDC release), not both',
-        };
-    }
-    if (options.ci) {
-        const oidc = options.env.GITHUB_ACTIONS === 'true'
-            && Boolean(options.env.ACTIONS_ID_TOKEN_REQUEST_URL)
-            && Boolean(options.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN);
-        if (!oidc) {
-            return {
-                kind: 'refused',
-                message: '--ci requires a GitHub Actions runner with id-token: write (Trusted Publisher OIDC); local real-version publish is disabled',
-            };
-        }
-        return { kind: 'ci' };
-    }
     if (options.execute) {
         if (version !== '0.0.0') {
             return {
@@ -226,7 +206,6 @@ async function cmdPublish(options: ParsedOptions): Promise<number> {
         return 2;
     }
     const execute = Boolean(options.execute);
-    const ci = Boolean(options.ci);
 
     const manifests: PublishManifest[] = [];
     for (const dir of dirs) {
@@ -264,25 +243,20 @@ async function cmdPublish(options: ParsedOptions): Promise<number> {
             console.error(`tag ${tagRef} does not match package version ${version}`);
             return 1;
         }
-    } else if (ci) {
-        console.error('--ci requires a release tag: pass --tag <vX.Y.Z> or set GITHUB_REF_NAME');
-        return 1;
     }
 
     const cargoRaw = typeof options.cargo === 'string' && options.cargo ? options.cargo : 'Cargo.toml';
     const cargoPath = path.resolve(cargoRaw);
     const cargoVersion = readWorkspaceVersion(cargoPath);
     if (cargoVersion === undefined) {
-        if (ci) {
-            console.error(`cannot read [workspace.package] version from ${cargoPath}`);
-            return 1;
-        }
+        console.error(`cannot read [workspace.package] version from ${cargoPath}`);
+        return 1;
     } else if (cargoVersion !== version) {
         console.error(`Cargo [workspace.package] version ${cargoVersion} does not match npm package version ${version}`);
         return 1;
     }
 
-    const intent = resolvePublishIntent(version, { execute, ci, env: process.env });
+    const intent = resolvePublishIntent(version, { execute, env: process.env });
     if (intent.kind === 'refused') {
         console.error(intent.message);
         return 2;
@@ -297,12 +271,8 @@ async function cmdPublish(options: ParsedOptions): Promise<number> {
         return 0;
     }
 
+    console.log(`publishing ${version} as the 0.0.0 placeholder stub (Trusted Publisher setup only)`);
     const args = ['publish', '--access', 'public'];
-    if (intent.kind === 'ci') {
-        args.push('--provenance');
-    } else {
-        console.log(`publishing ${version} as the 0.0.0 placeholder stub (Trusted Publisher setup only)`);
-    }
     for (const manifest of manifests) {
         const result = spawnSync('npm', args, {
             cwd: manifest.dir,

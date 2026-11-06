@@ -1,0 +1,141 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    devDependencies:
+      '@doki-land/nifty':
+        specifier: ^0.1.10
+        version: 0.1.10
+      '@wae/commander':
+        specifier: workspace:*
+        version: link:projects/wae.ts/packages/wae-commander
+      '@wae/wae':
+        specifier: workspace:*
+        version: link:projects/wae.ts/packages/wae
+
+  projects/wae.ts/packages/wae:
+    dependencies:
+      '@wae/commander':
+        specifier: workspace:*
+        version: link:../wae-commander
+    devDependencies:
+      '@types/node':
+        specifier: ^22.15.0
+        version: 22.20.5
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
+    optionalDependencies:
+      '@wae/wae-darwin-arm64':
+        specifier: 0.0.1
+        version: link:../../platforms/wae-darwin-arm64
+      '@wae/wae-linux-x64':
+        specifier: 0.0.1
+        version: link:../../platforms/wae-linux-x64
+      '@wae/wae-win32-x64':
+        specifier: 0.0.1
+        version: link:../../platforms/wae-win32-x64
+
+  projects/wae.ts/packages/wae-commander:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.15.0
+        version: 22.20.5
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
+
+  projects/wae.ts/platforms/wae-darwin-arm64: {}
+
+  projects/wae.ts/platforms/wae-linux-x64: {}
+
+  projects/wae.ts/platforms/wae-win32-x64: {}
+
+packages:
+
+  '@doki-land/nifty-darwin-arm64@0.1.10':
+    resolution: {integrity: sha512-SfGLh100pz9k7k4Y+o5u1iF4iywknwaO1M4eohF4wEa5BzpVUuAnYFyZXD0rYu7T2ycI+s+Aa7rIzrXRzB/9QA==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@doki-land/nifty-darwin-x64@0.1.10':
+    resolution: {integrity: sha512-Lycx+5tF8Vlh+GQRR5meE6XHDqGVWEhnKmbCBEhW/TLEfSrbgxkzAnWyZDT0U+K/kqZWpY8BAt5HtCBTkBrWxA==}
+    cpu: [x64]
+    os: [darwin]
+
+  '@doki-land/nifty-linux-arm64@0.1.10':
+    resolution: {integrity: sha512-6TWYL8BPkYKElKPtlEgNF34Fb8kc/OqauQYXU267yvT5FTGixR5AfdzBtG4sBsUf0kMYOCsR46LRZy+V4GqEMw==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@doki-land/nifty-linux-x64@0.1.10':
+    resolution: {integrity: sha512-KkJ4ZwObB2pETZ5M06wBX/Zr0d0pUqxvCvAXViuhzQKWPnbIb1fskBFs3IQO0fShnstKWY5PBCcMJb1ZW5Y3mw==}
+    cpu: [x64]
+    os: [linux]
+
+  '@doki-land/nifty-win32-x64@0.1.10':
+    resolution: {integrity: sha512-TeUGFdzMAgoVVZ5vhKdCIxcHF8u+VavgkDYJlyaxn0Ay2EshbCPgWR5dy5zpYgEJLMa6eUiA9wAffEhIA+rkyA==}
+    cpu: [x64]
+    os: [win32]
+
+  '@doki-land/nifty@0.1.10':
+    resolution: {integrity: sha512-F84WBRQ/GCKPRoHW+Zbmpf6X6DntLBJgR7uYK6Deg5+E9TYU/LpVfzHxAmGpXqmMgGu3serHWemPDahM7C90sA==}
+    engines: {node: '>=24.12.0'}
+    hasBin: true
+
+  '@types/node@22.20.5':
+    resolution: {integrity: sha512-U2+DNr+wSjpsTS/wZGYHq7GcwfuSmKiKvoPvK22zwTlRhU91yOniN4qRR5KhIjvif7ysw/dz/hKmfDH0Ris4aA==}
+
+  '@vmz/commander@0.2.8':
+    resolution: {integrity: sha512-hDTOJGKHam1+GYnOJY8M0yqctrBt8RfdkvUVmkeu1LQVRyfWRZ8kqWnTdYcW8PoCWKP4DdDpcWJrbmI7rn68Bg==}
+    engines: {node: '>=20'}
+
+  typescript@5.9.3:
+    resolution: {integrity: sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==}
+    engines: {node: '>=14.17'}
+    hasBin: true
+
+  undici-types@6.21.0:
+    resolution: {integrity: sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==}
+
+snapshots:
+
+  '@doki-land/nifty-darwin-arm64@0.1.10':
+    optional: true
+
+  '@doki-land/nifty-darwin-x64@0.1.10':
+    optional: true
+
+  '@doki-land/nifty-linux-arm64@0.1.10':
+    optional: true
+
+  '@doki-land/nifty-linux-x64@0.1.10':
+    optional: true
+
+  '@doki-land/nifty-win32-x64@0.1.10':
+    optional: true
+
+  '@doki-land/nifty@0.1.10':
+    dependencies:
+      '@vmz/commander': 0.2.8
+    optionalDependencies:
+      '@doki-land/nifty-darwin-arm64': 0.1.10
+      '@doki-land/nifty-darwin-x64': 0.1.10
+      '@doki-land/nifty-linux-arm64': 0.1.10
+      '@doki-land/nifty-linux-x64': 0.1.10
+      '@doki-land/nifty-win32-x64': 0.1.10
+
+  '@types/node@22.20.5':
+    dependencies:
+      undici-types: 6.21.0
+
+  '@vmz/commander@0.2.8': {}
+
+  typescript@5.9.3: {}
+
+  undici-types@6.21.0: {}

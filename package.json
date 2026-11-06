@@ -18,6 +18,7 @@
         "wae": "pnpm --filter @wae/wae exec node ./dist/cli.js"
     },
     "devDependencies": {
+        "@doki-land/nifty": "^0.1.10",
         "@wae/commander": "workspace:*",
         "@wae/wae": "workspace:*"
     }

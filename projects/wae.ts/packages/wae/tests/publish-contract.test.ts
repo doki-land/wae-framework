@@ -48,9 +48,10 @@ test('publish workflow follows the Trusted Publisher (OIDC) contract', () => {
     assert.match(publishWorkflow, /workflow_dispatch:/);
     assert.match(publishWorkflow, /permissions:\s*\n\s*contents:\s*read\s*\n\s*id-token:\s*write/);
     assert.match(publishWorkflow, /environment:\s*NPM_PUBLISH/);
-    assert.match(publishWorkflow, /registry-url:\s*https:\/\/registry\.npmjs\.org/);
-    assert.match(publishWorkflow, /--ci/);
-    assert.match(publishWorkflow, /refs\/tags\/\$\{RELEASE_TAG\}/);
+    assert.match(publishWorkflow, /pnpm exec nifty publish --access public --version=/);
+    assert.match(publishWorkflow, /pnpm install --frozen-lockfile/);
+    assert.doesNotMatch(publishWorkflow, /registry-url|--ci/);
+    assert.match(cliSource, /env: process\.env/);
 });
 
 test('workflows never reintroduce npm token, OTP, or local publish bypasses', () => {
@@ -59,11 +60,10 @@ test('workflows never reintroduce npm token, OTP, or local publish bypasses', ()
         const text = fs.readFileSync(path.join(workflowsDir, file), 'utf8');
         assert.doesNotMatch(text, /NPM_TOKEN|NODE_AUTH_TOKEN/i, `${file} must not use npm token secrets`);
         assert.doesNotMatch(text, /--otp/i, `${file} must not use --otp`);
-        assert.doesNotMatch(text, /\bnpm publish\b/, `${file} must publish through wae publish --ci`);
+        assert.doesNotMatch(text, /\bnpm publish\b/, `${file} must publish through nifty publish`);
         assert.doesNotMatch(text, /--execute/, `${file} must not use the local placeholder publish path`);
     }
-    assert.doesNotMatch(cliSource, /--otp|NODE_AUTH_TOKEN/);
-    assert.match(cliSource, /'--provenance'/);
+    assert.doesNotMatch(cliSource, /--otp|NODE_AUTH_TOKEN|--provenance/);
     assert.match(cliSource, /'--access',\s*'public'/);
 });
 
@@ -85,14 +85,13 @@ test('publish workflow covers every real @wae package and no template placeholde
     }
 
     const dirs = new Set([...publishWorkflow.matchAll(/--dir\s+([^\s\\]+)/g)].map((match) => match[1]!));
-    const publishedNames = [...dirs].map((dir) => {
-        const manifest = JSON.parse(fs.readFileSync(path.join(repoRoot, dir, 'package.json'), 'utf8')) as { name: string };
-        return manifest.name;
-    });
-    assert.deepEqual(new Set(publishedNames), new Set(realNames));
-    for (const dir of dirs) {
-        assert.ok(!dir.includes('/templates/'), `template placeholder must not be published: ${dir}`);
-    }
+    assert.equal(dirs.size, 0, 'the workflow must not enumerate package directories');
+    const workspaceFile = fs.readFileSync(path.join(repoRoot, 'pnpm-workspace.yaml'), 'utf8');
+    assert.match(workspaceFile, /projects\/wae\.ts\/packages\/\*/);
+    assert.match(workspaceFile, /projects\/wae\.ts\/platforms\/\*/);
+    assert.doesNotMatch(workspaceFile, /templates/);
+    assert.match(publishWorkflow, /pnpm exec nifty publish --access public/);
+    assert.doesNotMatch(publishWorkflow, /templates/);
 });
 
 test('publish verifies tag, package, and Cargo versions without invoking npm', async () => {
@@ -127,33 +126,6 @@ test('publish refuses local real-version publishing', async () => {
         assert.match(result.err, /local publish of 0\.1\.0 is disabled/);
         assert.match(result.err, /push tag v0\.1\.0/);
     } finally {
-        fixture.cleanup();
-    }
-});
-
-test('publish refuses --ci outside a GitHub Actions OIDC runner', async () => {
-    const fixture = makePublishFixture('0.1.0', '0.1.0');
-    const saved = {
-        actions: process.env.GITHUB_ACTIONS,
-        url: process.env.ACTIONS_ID_TOKEN_REQUEST_URL,
-        token: process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN,
-    };
-    delete process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
-    delete process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
-    try {
-        const result = await runCli([
-            'publish',
-            '--dir', fixture.dir,
-            '--tag', 'v0.1.0',
-            '--cargo', fixture.cargo,
-            '--ci',
-        ]);
-        assert.equal(result.code, 2);
-        assert.match(result.err, /Trusted Publisher OIDC/);
-    } finally {
-        restoreEnv('GITHUB_ACTIONS', saved.actions);
-        restoreEnv('ACTIONS_ID_TOKEN_REQUEST_URL', saved.url);
-        restoreEnv('ACTIONS_ID_TOKEN_REQUEST_TOKEN', saved.token);
         fixture.cleanup();
     }
 });
@@ -202,18 +174,10 @@ test('publish rejects private packages', async () => {
     }
 });
 
-test('resolvePublishIntent keeps real-version publishing inside OIDC only', () => {
-    const oidcEnv = {
-        GITHUB_ACTIONS: 'true',
-        ACTIONS_ID_TOKEN_REQUEST_URL: 'https://example.invalid/oidc',
-        ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'token',
-    } as NodeJS.ProcessEnv;
-    assert.deepEqual(resolvePublishIntent('0.0.1', { execute: false, ci: false, env: {} }), { kind: 'verify' });
-    assert.equal(resolvePublishIntent('0.0.0', { execute: true, ci: false, env: {} }).kind, 'placeholder');
-    assert.equal(resolvePublishIntent('0.0.1', { execute: true, ci: false, env: {} }).kind, 'refused');
-    assert.equal(resolvePublishIntent('0.0.1', { execute: false, ci: true, env: {} }).kind, 'refused');
-    assert.equal(resolvePublishIntent('0.0.1', { execute: false, ci: true, env: oidcEnv }).kind, 'ci');
-    assert.equal(resolvePublishIntent('0.0.1', { execute: true, ci: true, env: oidcEnv }).kind, 'refused');
+test('resolvePublishIntent keeps real-version publishing out of the local CLI', () => {
+    assert.deepEqual(resolvePublishIntent('0.0.1', { execute: false, env: {} }), { kind: 'verify' });
+    assert.equal(resolvePublishIntent('0.0.0', { execute: true, env: {} }).kind, 'placeholder');
+    assert.equal(resolvePublishIntent('0.0.1', { execute: true, env: {} }).kind, 'refused');
 });
 
 test('readWorkspaceVersion reads only [workspace.package]', () => {
@@ -227,8 +191,3 @@ test('readWorkspaceVersion reads only [workspace.package]', () => {
         fs.rmSync(path.dirname(file), { recursive: true, force: true });
     }
 });
-
-function restoreEnv(key: string, value: string | undefined): void {
-    if (value === undefined) delete process.env[key];
-    else process.env[key] = value;
-}

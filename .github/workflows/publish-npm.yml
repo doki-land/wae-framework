@@ -1,15 +1,25 @@
 name: publish-npm
 
+# Trusted Publisher contract (sole npm trusted workflow — keep this filename):
+#   file = publish-npm.yml
+#   repo = doki-land/wae-framework
+#   env  = NPM_PUBLISH
+#
 # Real `@wae/*` versions publish only through the npm Trusted Publisher (OIDC).
-# Tag pushes are the normal path. `workflow_dispatch` exists for an explicit,
-# user-authorized retry and must name an existing release tag.
+# Tag pushes are the normal path. `workflow_dispatch` is an explicit,
+# user-authorized retry and must name an existing release tag; the version is
+# taken from that tag, never from branch HEAD.
+#
+# Publishing is delegated to Nifty (`nifty publish --version`), the same path
+# VMZ uses. Do not reintroduce a second publish implementation here.
+
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing release tag (for example v0.0.1). It must match every package version."
+        description: "Existing release tag (for example v0.0.1). Its version is published."
         required: true
         type: string
 
@@ -48,7 +58,7 @@ jobs:
       - uses: actions/upload-artifact@v5
         with:
           name: wae-${{ matrix.target }}
-          path: projects/wae.ts/packages/platforms/wae-${{ matrix.target }}/wae.${{ matrix.target }}.node
+          path: projects/wae.ts/platforms/wae-${{ matrix.target }}/wae.${{ matrix.target }}.node
           if-no-files-found: error
 
   publish:
@@ -63,7 +73,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/download-artifact@v5
         with:
-          path: projects/wae.ts/packages/platforms
+          path: projects/wae.ts/platforms
           pattern: wae-*
       - uses: pnpm/action-setup@v4
         with:
@@ -71,34 +81,14 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: "22"
-          registry-url: https://registry.npmjs.org
+          # Leave npm auth unset here: a placeholder token in the runner npmrc
+          # blocks Trusted Publisher OIDC.
           package-manager-cache: false
       - name: Upgrade npm for Trusted Publisher support
         run: npm install --global npm@11
       - name: Install
-        # 本仓不提交 pnpm-lock.yaml，禁止 frozen-lockfile
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install --frozen-lockfile
       - name: Build
         run: pnpm run build:ts
-      - name: Verify tag, npm versions, and Cargo workspace version
-        run: |
-          git rev-parse --verify "refs/tags/${RELEASE_TAG}^{commit}"
-          pnpm exec wae publish \
-            --dir projects/wae.ts/packages/wae \
-            --dir projects/wae.ts/packages/wae-commander \
-            --dir projects/wae.ts/packages/platforms/wae-win32-x64 \
-            --dir projects/wae.ts/packages/platforms/wae-darwin-arm64 \
-            --dir projects/wae.ts/packages/platforms/wae-linux-x64 \
-            --tag "${RELEASE_TAG}" \
-            --cargo Cargo.toml
-      - name: Publish via Trusted Publisher (OIDC)
-        run: |
-          pnpm exec wae publish \
-            --dir projects/wae.ts/packages/wae \
-            --dir projects/wae.ts/packages/wae-commander \
-            --dir projects/wae.ts/packages/platforms/wae-win32-x64 \
-            --dir projects/wae.ts/packages/platforms/wae-darwin-arm64 \
-            --dir projects/wae.ts/packages/platforms/wae-linux-x64 \
-            --tag "${RELEASE_TAG}" \
-            --cargo Cargo.toml \
-            --ci
+      - name: Publish packages to npm
+        run: pnpm exec nifty publish --access public --version="${RELEASE_TAG#v}"
