@@ -112,22 +112,3 @@ export function stageNative(req: {
 export function cargoBuildRelease(projectRoot: string, cargoPackage: string): void {
     cargoBuildNative({ root: projectRoot, crate: cargoPackage, profile: 'release' });
 }
-
-/** Find a cdylib under `releaseDir` by package stem. */
-export function findCdylib(releaseDir: string, cargoPackage: string): string {
-    const stem = cargoPackage.replaceAll('-', '_');
-    const candidates = [
-        path.join(releaseDir, `${stem}.dll`),
-        path.join(releaseDir, `${stem}.node`),
-        path.join(releaseDir, `lib${stem}.so`),
-        path.join(releaseDir, `lib${stem}.dylib`),
-    ];
-    for (const candidate of candidates) {
-        if (fs.existsSync(candidate)) return candidate;
-    }
-    throw new WaeBuildError(
-        BUILD_CODES.artifactMissing,
-        `no native artifact for package \`${cargoPackage}\` under ${releaseDir} (expected stem=\`${stem}\`)`,
-        { attempts: candidates },
-    );
-}
