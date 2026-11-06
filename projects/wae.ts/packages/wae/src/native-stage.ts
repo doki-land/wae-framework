@@ -8,6 +8,52 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { BUILD_CODES, WaeBuildError } from './build-error.js';
+import { WAE_CONFIG_FILE, type WaeNativeConfig, type WaeNativeTarget } from './config.js';
+
+/** `<platform>-<arch>` of the running host. */
+export function hostKey(): string {
+    return `${process.platform}-${process.arch}`;
+}
+
+/**
+ * Resolve exactly one native target: CLI override first, then `native.targetEnv`,
+ * then the host. Cross targets require `crossCompile: 'allow'`.
+ */
+export function selectNativeTarget(native: WaeNativeConfig, override: string | undefined): WaeNativeTarget {
+    const host = hostKey();
+    const envKey = native.targetEnv === undefined ? undefined : process.env[native.targetEnv];
+    const key = override ?? envKey?.trim() ?? host;
+    const declared = native.targets.map((target) => `${target.platform}-${target.arch}`);
+    const target = native.targets.find((entry) => `${entry.platform}-${entry.arch}` === key);
+    if (!target) {
+        throw new WaeBuildError(
+            BUILD_CODES.targetMissing,
+            `native target \`${key}\` is not declared in ${WAE_CONFIG_FILE}; declared: ${declared.join(', ')}`,
+            { platform: key, attempts: declared },
+        );
+    }
+    if (key !== host && (native.crossCompile ?? 'reject') === 'reject') {
+        throw new WaeBuildError(
+            BUILD_CODES.targetMissing,
+            `native target \`${key}\` differs from host \`${host}\`; cross compilation is rejected, run the build on that platform`,
+            { platform: key, attempts: declared },
+        );
+    }
+    return target;
+}
+
+/** Build request for one resolved target; `triple` is set only for cross targets. */
+export function nativeBuildRequest(root: string, native: WaeNativeConfig, target: WaeNativeTarget): NativeBuildOptions {
+    const cross = `${target.platform}-${target.arch}` !== hostKey();
+    return {
+        root,
+        crate: native.crate,
+        ...(native.cdylib === undefined ? {} : { cdylib: native.cdylib }),
+        profile: native.profile ?? 'release',
+        ...(native.buildDir === undefined ? {} : { buildDir: native.buildDir }),
+        ...(cross ? { triple: target.triple } : {}),
+    };
+}
 
 export type NativeBuildOptions = {
     root: string;

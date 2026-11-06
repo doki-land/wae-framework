@@ -25,6 +25,8 @@ import { copyDir, removePath, rewritePlaceholders, SCAFFOLD_NAME_PATTERN } from 
 import {
     cargoBuildNative,
     findNativeArtifact,
+    nativeBuildRequest,
+    selectNativeTarget,
     stageBuiltArtifact,
     stageNative,
 } from './native-stage.js';
@@ -215,10 +217,11 @@ async function cmdNativeBuild(options: ParsedOptions): Promise<number> {
             console.log(`[wae] native build would ${plan.native.stageOnly ? 'stage' : 'build'} \`${key}\` → ${path.join(plan.root, plan.target.dir, plan.target.nodeFile)}`);
             return 0;
         }
+        const request = nativeBuildRequest(plan.root, plan.native, plan.target);
         if (plan.native.stageOnly !== true) {
-            cargoBuildNative(buildRequest(plan));
+            cargoBuildNative(request);
         }
-        const artifact = findNativeArtifact(buildRequest(plan));
+        const artifact = findNativeArtifact(request);
         const dest = stageBuiltArtifact(artifact, path.resolve(plan.root, plan.target.dir), plan.target.nodeFile);
         console.log(`[wae] native addon staged at ${dest}`);
         return 0;
@@ -235,48 +238,13 @@ async function cmdNativeStage(options: ParsedOptions): Promise<number> {
             console.log(`[wae] native stage would copy the built cdylib for \`${plan.native.crate}\` → ${dest}`);
             return 0;
         }
-        const artifact = findNativeArtifact(buildRequest(plan));
+        const artifact = findNativeArtifact(nativeBuildRequest(plan.root, plan.native, plan.target));
         const staged = stageBuiltArtifact(artifact, path.resolve(plan.root, plan.target.dir), plan.target.nodeFile);
         console.log(`[wae] native addon staged at ${staged}`);
         return 0;
     } catch (error) {
         return buildFailure('native stage', error);
     }
-}
-
-function buildRequest(plan: NativePlan) {
-    const cross = `${plan.target.platform}-${plan.target.arch}` !== `${process.platform}-${process.arch}`;
-    return {
-        root: plan.root,
-        crate: plan.native.crate,
-        ...(plan.native.cdylib === undefined ? {} : { cdylib: plan.native.cdylib }),
-        profile: plan.native.profile ?? 'release' as const,
-        ...(plan.native.buildDir === undefined ? {} : { buildDir: plan.native.buildDir }),
-        ...(cross ? { triple: plan.target.triple } : {}),
-    };
-}
-
-/** Select the native target by key; refuses cross-compiled claims by default. */
-function selectNativeTarget(native: WaeNativeConfig, override: string | undefined): WaeNativeTarget {
-    const host = `${process.platform}-${process.arch}`;
-    const declared = native.targets.map((target) => `${target.platform}-${target.arch}`);
-    const key = override ?? (native.targetEnv === undefined ? undefined : process.env[native.targetEnv]?.trim()) ?? host;
-    const target = native.targets.find((entry) => `${entry.platform}-${entry.arch}` === key);
-    if (!target) {
-        throw new WaeBuildError(
-            BUILD_CODES.targetMissing,
-            `native target \`${key}\` is not declared in ${WAE_CONFIG_FILE}; declared: ${declared.join(', ')}`,
-            { platform: key, attempts: declared },
-        );
-    }
-    if (key !== host && (native.crossCompile ?? 'reject') === 'reject') {
-        throw new WaeBuildError(
-            BUILD_CODES.targetMissing,
-            `native target \`${key}\` differs from host \`${host}\`; cross compilation is rejected, run the build on that platform`,
-            { platform: key, attempts: declared },
-        );
-    }
-    return target;
 }
 
 /**

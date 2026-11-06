@@ -15,12 +15,11 @@ import {
     WAE_CONFIG_FILE,
     type WaeBuildStepName,
     type WaeConfig,
-    type WaeNativeConfig,
     type WaeNativeTarget,
     type WaePlatformPackage,
     type WaeSkillsPackage,
 } from './config.js';
-import { cargoBuildNative, findNativeArtifact, stageBuiltArtifact } from './native-stage.js';
+import { cargoBuildNative, findNativeArtifact, nativeBuildRequest, selectNativeTarget, stageBuiltArtifact } from './native-stage.js';
 import { auditSkills } from './skills-audit.js';
 
 /** Exact `X.Y.Z` versions, no ranges or prerelease. */
@@ -142,8 +141,7 @@ function runNativeStep(context: BuildContext, targetOverride: string | undefined
         return { step: { name: 'native', status: 'ok', detail: `built \`${crate}\` → ${artifact}` } };
     }
 
-    const selected = selectTarget(native, targetOverride);
-    const crossCompiled = `${selected.platform}-${selected.arch}` !== hostKey();
+    const selected = selectNativeTarget(native, targetOverride);
     if (context.dryRun) {
         return {
             step: {
@@ -155,24 +153,11 @@ function runNativeStep(context: BuildContext, targetOverride: string | undefined
         };
     }
 
+    const request = nativeBuildRequest(context.root, native, selected);
     if (native.stageOnly !== true) {
-        cargoBuildNative({
-            root: context.root,
-            crate: crate!,
-            ...(native.cdylib === undefined ? {} : { cdylib: native.cdylib }),
-            profile: native.profile ?? 'release',
-            ...(native.buildDir === undefined ? {} : { buildDir: native.buildDir }),
-            ...(crossCompiled ? { triple: selected.triple } : {}),
-        });
+        cargoBuildNative(request);
     }
-    const artifact = findNativeArtifact({
-        root: context.root,
-        crate: crate!,
-        ...(native.cdylib === undefined ? {} : { cdylib: native.cdylib }),
-        profile: native.profile ?? 'release',
-        ...(native.buildDir === undefined ? {} : { buildDir: native.buildDir }),
-        ...(crossCompiled ? { triple: selected.triple } : {}),
-    });
+    const artifact = findNativeArtifact(request);
     const destDir = path.resolve(context.root, selected.dir);
     if (!fs.existsSync(destDir)) {
         throw new WaeBuildError(
@@ -186,33 +171,6 @@ function runNativeStep(context: BuildContext, targetOverride: string | undefined
         step: { name: 'native', status: 'ok', detail: `staged \`${selected.platform}-${selected.arch}\` → ${dest}` },
         selected,
     };
-}
-
-function hostKey(): string {
-    return `${process.platform}-${process.arch}`;
-}
-
-function selectTarget(native: WaeNativeConfig, override: string | undefined): WaeNativeTarget {
-    const host = hostKey();
-    const envKey = native.targetEnv === undefined ? undefined : process.env[native.targetEnv];
-    const key = override ?? envKey?.trim() ?? host;
-    const declared = native.targets.map((target) => `${target.platform}-${target.arch}`);
-    const target = native.targets.find((entry) => `${entry.platform}-${entry.arch}` === key);
-    if (!target) {
-        throw new WaeBuildError(
-            BUILD_CODES.targetMissing,
-            `native target \`${key}\` is not declared in ${WAE_CONFIG_FILE}; declared: ${declared.join(', ')}`,
-            { platform: key, attempts: declared },
-        );
-    }
-    if (key !== host && (native.crossCompile ?? 'reject') === 'reject') {
-        throw new WaeBuildError(
-            BUILD_CODES.targetMissing,
-            `native target \`${key}\` differs from host \`${host}\`; cross compilation is rejected, run the build on that platform`,
-            { platform: key, attempts: declared },
-        );
-    }
-    return target;
 }
 
 function runTsStep(context: BuildContext): StepResult {
