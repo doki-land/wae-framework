@@ -36,3 +36,64 @@ test('wae new --with-gui keeps gui folder', async () => {
         fs.rmSync(tmp, { recursive: true, force: true });
     }
 });
+
+function assertNoPlaceholders(dir: string): void {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        assert.equal(entry.name.includes('{{name'), false, `unreplaced placeholder in path: ${full}`);
+        if (entry.isDirectory()) {
+            assertNoPlaceholders(full);
+            continue;
+        }
+        const source = fs.readFileSync(full, 'utf8');
+        // GitHub Actions uses `${{ ... }}`, so only the scaffold tokens are checked.
+        assert.equal(source.includes('{{name'), false, `unreplaced placeholder in file: ${full}`);
+    }
+}
+
+test('wae new --template open-app scaffolds the full application skeleton', async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wae-new-app-'));
+    const name = 'demo-app';
+    try {
+        const code = await buildCli().parse(['new', name, '--out', tmp, '--template', 'open-app']);
+        assert.equal(code, 0);
+        const dest = path.join(tmp, name);
+        assert.ok(fs.existsSync(path.join(dest, 'Cargo.toml')));
+        assert.ok(fs.existsSync(path.join(dest, 'crates', 'core', 'Cargo.toml')));
+        assert.ok(fs.existsSync(path.join(dest, 'crates', 'napi', 'Cargo.toml')));
+        const cliFile = path.join(dest, 'packages', name, 'src', 'cli.ts');
+        assert.ok(fs.existsSync(cliFile));
+        const uiConfig = path.join(dest, 'packages', name + '-ui', 'vmz.config.ts');
+        assert.ok(fs.existsSync(uiConfig));
+        const skillFile = path.join(dest, 'packages', `${name}-skills`, 'skills', 'workflow', 'SKILL.md');
+        assert.ok(fs.existsSync(skillFile));
+        const platformPackage = path.join(dest, 'packages', `${name}-win32-x64`, 'package.json');
+        assert.ok(fs.existsSync(platformPackage));
+        const app = JSON.parse(fs.readFileSync(path.join(dest, 'packages', name, 'package.json'), 'utf8')) as {
+            name: string;
+            bin: Record<string, string>;
+        };
+        assert.equal(app.name, `@wae/${name}`);
+        assert.equal(app.bin[name], './dist/cli.js');
+        const core = fs.readFileSync(path.join(dest, 'crates', 'core', 'Cargo.toml'), 'utf8');
+        assert.match(core, /name = "demo_app-core"/);
+        assertNoPlaceholders(dest);
+    } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+    }
+});
+
+test('wae new rejects unknown templates and invalid names', async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wae-new-bad-'));
+    const errors: string[] = [];
+    const orig = console.error;
+    console.error = (...a: unknown[]) => errors.push(a.map(String).join(' '));
+    try {
+        assert.equal(await buildCli().parse(['new', 'demo-app', '--out', tmp, '--template', 'nope']), 2);
+        assert.equal(await buildCli().parse(['new', 'Demo_App', '--out', tmp]), 2);
+        assert.equal(errors.length, 2);
+    } finally {
+        console.error = orig;
+        fs.rmSync(tmp, { recursive: true, force: true });
+    }
+});

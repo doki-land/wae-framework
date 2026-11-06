@@ -2,13 +2,14 @@
     "cli": {
         "intro": "WAE meta CLI — scaffold, build, stage native npm addons, and publish.",
         "cmd": {
-            "new": "Scaffold a new tool project from the open-tools template",
+            "new": "Scaffold a project from the open-tools or open-app template",
             "build": "cargo build -p <package> --release in a product workspace",
             "dist": "Build and stage a cdylib into an npm platform package directory",
             "publish": "Verify npm package directories for a tag release; publishing needs Trusted Publisher (OIDC)"
         },
         "opt": {
-            "with-gui": "Keep the GUI static page skeleton",
+            "template": "Template id: open-tools (minimal tool) or open-app (Open-X application skeleton)",
+            "with-gui": "Keep the GUI static page skeleton (open-tools only)",
             "out": "Parent directory for the new project",
             "project": "Product workspace root (contains Cargo.toml)",
             "package": "Cargo package name to build",
