@@ -15,6 +15,7 @@ export type NativeCapabilities = {
     arch: string;
     audit: boolean;
     version: string;
+    atomic?: string[];
 };
 
 export type NativeProbe = {
@@ -188,13 +189,42 @@ export function resolveNativePath(options: NativeResolveOptions = {}): string {
 /** Load the addon from the platform package. */
 export function loadNative(options: NativeResolveOptions & { load?: (file: string) => unknown } = {}): WaeNative {
     const addonPath = resolveNativePath(options);
-    const load = options.load ?? ((file: string) => NATIVE_REQUIRE(file));
+    return loadAt(addonPath, platformKey(options), options.load ?? ((file: string) => NATIVE_REQUIRE(file)));
+}
+
+/** Result of resolving and loading the addon, as reported by `wae native info`. */
+export type NativeInspection = {
+    platformKey: string;
+    path: string;
+    version: string;
+    capabilities: NativeCapabilities;
+};
+
+/** Resolve the addon, load it, and report the version and capabilities it exposes. */
+export function inspectNative(
+    options: NativeResolveOptions & { load?: (file: string) => unknown } = {},
+): NativeInspection {
+    const addonPath = resolveNativePath(options);
+    const addon = loadAt(addonPath, platformKey(options), options.load ?? ((file: string) => NATIVE_REQUIRE(file)));
+    return {
+        platformKey: platformKey(options),
+        path: addonPath,
+        version: addon.version(),
+        capabilities: addon.capabilities(),
+    };
+}
+
+function platformKey(options: NativeResolveOptions): string {
+    return `${options.platform ?? process.platform}-${options.arch ?? process.arch}`;
+}
+
+function loadAt(addonPath: string, key: string, load: (file: string) => unknown): WaeNative {
     try {
         return load(addonPath) as WaeNative;
     } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
         throw new NativeLoadError(
-            `${options.platform ?? process.platform}-${options.arch ?? process.arch}`,
+            key,
             addonPath,
             `failed to load the WAE native addon at ${addonPath}: ${detail}`,
             error,

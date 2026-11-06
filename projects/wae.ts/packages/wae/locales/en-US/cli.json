@@ -5,7 +5,10 @@
             "new": "Scaffold a project from the open-tools or open-app template",
             "build": "cargo build -p <package> --release in a product workspace",
             "dist": "Build and stage a cdylib into an npm platform package directory",
-            "publish": "Verify npm package directories for a tag release; publishing needs Trusted Publisher (OIDC)"
+            "publish": "Verify npm package directories for a tag release; publishing needs Trusted Publisher (OIDC)",
+            "native": "Inspect the native addon: resolved path, version, capabilities, audit",
+            "native-info": "Resolve and load the native addon for the current platform",
+            "native-audit": "Query the audit records written by the native addon"
         },
         "opt": {
             "template": "Template id: open-tools (minimal tool) or open-app (Open-X application skeleton)",
@@ -19,7 +22,14 @@
             "tag": "Release tag to verify (defaults to GITHUB_REF_NAME in CI)",
             "cargo": "Cargo workspace manifest for the [workspace.package] version check",
             "execute": "Publish the 0.0.0 placeholder stub locally (real versions are rejected)",
-            "ci": "Publish via Trusted Publisher (OIDC) from GitHub Actions"
+            "ci": "Publish via Trusted Publisher (OIDC) from GitHub Actions",
+            "json": "Print machine-readable JSON",
+            "kind": "Audit actor kind: user or agent",
+            "actor-id": "Audit actor id",
+            "capability": "Capability name to filter audit records",
+            "from": "Lower bound timestamp in milliseconds",
+            "to": "Upper bound timestamp in milliseconds",
+            "limit": "Maximum number of audit records"
         }
     }
 }

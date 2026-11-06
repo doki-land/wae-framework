@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import {
     NativeLoadError,
     NativeUnsupportedError,
+    inspectNative,
     loadNative,
     nativeCandidates,
     nativeFileName,
@@ -137,4 +138,27 @@ test('native load failure keeps the original error as cause', () => {
         }),
     );
     assert.equal(error.cause, original);
+});
+
+test('inspectNative reports the resolved path, version and capabilities', () => {
+    const capabilities = { platform: 'windows', arch: 'x64', audit: true, version: '0.0.2', atomic: ['findArtifact'] };
+    const report = inspectNative({
+        platform: 'win32',
+        arch: 'x64',
+        here: HERE,
+        resolve: () => path.join(HERE, 'package.json'),
+        exists: () => true,
+        load: () => ({ version: () => '0.0.2', capabilities: () => capabilities }),
+    });
+    assert.equal(report.platformKey, 'win32-x64');
+    assert.equal(report.path, path.join(HERE, 'wae.win32-x64.node'));
+    assert.equal(report.version, '0.0.2');
+    assert.deepEqual(report.capabilities, capabilities);
+});
+
+test('inspectNative keeps unsupported platforms structured', () => {
+    const error = capture(NativeUnsupportedError, () => inspectNative({ platform: 'darwin', arch: 'x64', here: HERE }));
+    assert.equal(error.code, 'unsupported_platform');
+    assert.equal(error.platform, 'darwin-x64');
+    assert.deepEqual(error.attempts, []);
 });

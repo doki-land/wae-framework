@@ -5,7 +5,10 @@
             "new": "从 open-tools 或 open-app 模板脚手架新建项目",
             "build": "在产品工作区执行 cargo build -p <package> --release",
             "dist": "构建并把 cdylib 暂存到 npm 平台包目录",
-            "publish": "校验 npm 包目录与 tag 发布一致性；实际发布走 Trusted Publisher（OIDC）"
+            "publish": "校验 npm 包目录与 tag 发布一致性；实际发布走 Trusted Publisher（OIDC）",
+            "native": "检查原生 addon：解析路径、版本、能力与审计",
+            "native-info": "为当前平台解析并加载原生 addon",
+            "native-audit": "查询原生 addon 写入的审计记录"
         },
         "opt": {
             "template": "模板 id：open-tools（最小工具）或 open-app（Open-X 应用骨架）",
@@ -19,7 +22,14 @@
             "tag": "要校验的发布 tag（CI 默认取 GITHUB_REF_NAME）",
             "cargo": "用于校验 [workspace.package] 版本的 Cargo 工作区清单",
             "execute": "仅在本地发布 0.0.0 占位 stub（真实版本一律拒绝）",
-            "ci": "在 GitHub Actions 中经 Trusted Publisher（OIDC）发布"
+            "ci": "在 GitHub Actions 中经 Trusted Publisher（OIDC）发布",
+            "json": "输出机器可读的 JSON",
+            "kind": "审计主体类型：user 或 agent",
+            "actor-id": "审计主体 id",
+            "capability": "按能力名过滤审计记录",
+            "from": "时间下界（毫秒）",
+            "to": "时间上界（毫秒）",
+            "limit": "审计记录条数上限"
         }
     }
 }

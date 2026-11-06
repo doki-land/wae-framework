@@ -9,6 +9,13 @@ import { fileURLToPath } from 'node:url';
 import { createCli, type ParsedOptions } from '@wae/commander';
 import { copyDir, removePath, rewritePlaceholders, SCAFFOLD_NAME_PATTERN } from './fs-utils.js';
 import { cargoBuildRelease, stageNative } from './native-stage.js';
+import {
+    inspectNative,
+    loadNative,
+    NativeLoadError,
+    NativeUnsupportedError,
+    type NativeAuditFilter,
+} from './native.js';
 import { localesRoot, SCAFFOLD_TEMPLATES, type ScaffoldTemplate, templateRoot } from './paths.js';
 
 /** Build the product CLI (tests may call this directly). */
@@ -39,6 +46,20 @@ export function buildCli() {
         .option('--cargo <path>', 'cli.opt.cargo')
         .option('--execute', 'cli.opt.execute')
         .actionCtx(async (options) => cmdPublish(options));
+
+    const native = cli.command('native', 'cli.cmd.native');
+    native.command('info', 'cli.cmd.native-info')
+        .option('--json', 'cli.opt.json')
+        .actionCtx(async (options) => cmdNativeInfo(options));
+    native.command('audit', 'cli.cmd.native-audit')
+        .option('--kind <kind>', 'cli.opt.kind', { enum: ['user', 'agent'] })
+        .option('--id <id>', 'cli.opt.actor-id')
+        .option('--capability <name>', 'cli.opt.capability')
+        .option('--from <ms>', 'cli.opt.from', { coerce: (raw) => nonNegativeInt(raw, '--from') })
+        .option('--to <ms>', 'cli.opt.to', { coerce: (raw) => nonNegativeInt(raw, '--to') })
+        .option('--limit <n>', 'cli.opt.limit', { coerce: (raw) => nonNegativeInt(raw, '--limit') })
+        .option('--json', 'cli.opt.json')
+        .actionCtx(async (options) => cmdNativeAudit(options));
 
     return cli;
 }
@@ -111,6 +132,84 @@ async function cmdDist(options: ParsedOptions): Promise<number> {
     } catch (err) {
         console.error(`wae dist failed: ${err instanceof Error ? err.message : err}`);
         return 1;
+    }
+}
+
+/** Strict non-negative integer option value (parse failure exits 2). */
+function nonNegativeInt(raw: string | boolean | string[], flag: string): number {
+    const text = typeof raw === 'string' ? raw.trim() : '';
+    if (!/^\d+$/.test(text)) {
+        throw new Error(`${flag} expects a non-negative integer, got ${typeof raw === 'string' ? raw : String(raw)}`);
+    }
+    return Number(text);
+}
+
+/** Render a structured native failure (code, capability, platform, attempts) as JSON. */
+function nativeFailure(error: unknown): number {
+    if (error instanceof NativeUnsupportedError || error instanceof NativeLoadError) {
+        console.error(JSON.stringify(error.toJSON(), null, 2));
+        return 1;
+    }
+    console.error(`wae native failed: ${error instanceof Error ? error.message : error}`);
+    return 1;
+}
+
+async function cmdNativeInfo(options: ParsedOptions): Promise<number> {
+    try {
+        const report = inspectNative();
+        if (options.json === true) {
+            console.log(JSON.stringify(report, null, 2));
+            return 0;
+        }
+        console.log(`platform: ${report.platformKey}`);
+        console.log(`path: ${report.path}`);
+        console.log(`version: ${report.version}`);
+        console.log(`audit: ${String(report.capabilities.audit)}`);
+        const atomic = report.capabilities.atomic ?? [];
+        if (atomic.length) {
+            console.log(`atomic: ${atomic.join(', ')}`);
+        }
+        return 0;
+    } catch (error) {
+        return nativeFailure(error);
+    }
+}
+
+async function cmdNativeAudit(options: ParsedOptions): Promise<number> {
+    const filter: NativeAuditFilter = {};
+    if (typeof options.kind === 'string') {
+        filter.kind = options.kind === 'agent' ? 'agent' : 'user';
+    }
+    if (typeof options.id === 'string' && options.id) {
+        filter.id = options.id;
+    }
+    if (typeof options.capability === 'string' && options.capability) {
+        filter.capability = options.capability;
+    }
+    if (typeof options.from === 'number') {
+        filter.fromMs = options.from;
+    }
+    if (typeof options.to === 'number') {
+        filter.toMs = options.to;
+    }
+    if (typeof options.limit === 'number') {
+        filter.limit = options.limit;
+    }
+    try {
+        const addon = loadNative();
+        const text = addon.auditQuery(Object.keys(filter).length ? filter : undefined);
+        if (options.json === true) {
+            console.log(text);
+            return 0;
+        }
+        try {
+            console.log(JSON.stringify(JSON.parse(text), null, 2));
+        } catch {
+            console.log(text);
+        }
+        return 0;
+    } catch (error) {
+        return nativeFailure(error);
     }
 }
 
