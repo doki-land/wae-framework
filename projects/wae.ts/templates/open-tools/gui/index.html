@@ -41,17 +41,46 @@
     <button class="ghost" id="closeBtn" type="button">Close</button>
   </header>
   <main>
-    Replace this page with your tool UI. The host posts IPC through
-    <code>chrome.webview</code> when running inside the Win32 WebView2 shell.
+    Replace this page with your tool UI. The host posts IPC over a single
+    <code>wae</code> bridge on every desktop platform.
   </main>
   <script>
     const closeBtn = document.getElementById('closeBtn');
-    function post(msg) {
-      const bridge = window.chrome && window.chrome.webview;
-      if (!bridge || !bridge.postMessage) return false;
-      bridge.postMessage(JSON.stringify(msg));
-      return true;
+
+    // Host -> page. Win32 delivers through WebView2, macOS and Linux call
+    // window.__waeReceive with the same JSON string.
+    function dispatch(raw) {
+      let msg;
+      try {
+        msg = JSON.parse(raw);
+      } catch {
+        return;
+      }
+      // Handle msg here, for example msg.type === 'greet'.
+      if (msg.type === 'close') closeBtn.click();
     }
+
+    if (window.chrome && window.chrome.webview) {
+      window.chrome.webview.addEventListener('message', (event) => dispatch(event.data));
+    }
+    window.__waeReceive = dispatch;
+
+    // Page -> host.
+    function post(msg) {
+      const raw = JSON.stringify(msg);
+      const webview2 = window.chrome && window.chrome.webview;
+      if (webview2 && webview2.postMessage) {
+        webview2.postMessage(raw);
+        return true;
+      }
+      const bridge = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.wae;
+      if (bridge && bridge.postMessage) {
+        bridge.postMessage(raw);
+        return true;
+      }
+      return false;
+    }
+
     closeBtn.addEventListener('click', () => post({ type: 'close' }));
   </script>
 </body>
