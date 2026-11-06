@@ -107,14 +107,25 @@ fn core_error(error: CoreError) -> Error {
     }
 }
 
+/// Upstream host failure codes that mean a required GUI dependency is missing.
+const GUI_DEPENDENCY_CODES: &[&str] = &[
+    "webview2_runtime_missing",
+    "webkit_dependency_missing",
+    "webkit_symbol_missing",
+    "gtk_init_failed",
+];
+
 fn webview_error(error: WebViewError) -> CoreError {
-    match error {
+    match &error {
         WebViewError::Unsupported { capability, .. } => CoreError::capability(
             capability_ids::GUI,
             CapabilityState::UnsupportedPlatform,
             format!("upstream webview capability {capability:?} is unavailable on this target"),
         ),
-        other => CoreError::message(other.to_string()),
+        WebViewError::Host(failure) if GUI_DEPENDENCY_CODES.contains(&failure.code) => {
+            CoreError::capability(capability_ids::GUI, CapabilityState::DependencyBlocked, error.to_string())
+        }
+        _ => CoreError::message(error.to_string()),
     }
 }
 
@@ -479,3 +490,26 @@ register_module![
     configure_audit,
     audit_query
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn missing_gui_runtime_dependencies_map_to_dependency_blocked() {
+        for code in GUI_DEPENDENCY_CODES {
+            let mapped = webview_error(WebViewError::host(*code, "load_libraries", "missing dependency"));
+            assert_eq!(mapped.code(), CapabilityState::DependencyBlocked.code());
+            match mapped {
+                CoreError::Capability { capability, .. } => assert_eq!(capability, capability_ids::GUI),
+                other => panic!("unexpected domain error: {other}"),
+            }
+        }
+    }
+
+    #[test]
+    fn other_host_failures_stay_plain_domain_errors() {
+        let mapped = webview_error(WebViewError::host("create_window_failed", "create_window", "boom"));
+        assert_eq!(mapped.code(), "message");
+    }
+}
