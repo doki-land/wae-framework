@@ -151,6 +151,9 @@ pub mod audit {
         }
 
         /// 执行领域调用并记录结果。
+        ///
+        /// [`Error::refused`] 标记的错误记为 `rejected` 并写入其稳定 code，
+        /// 其余记为 `failure` 并回落 [`NapiCall::error_code`] 的默认值。
         pub fn run<F>(mut self, run: F) -> Result<JsValue>
         where
             F: FnOnce() -> Result<JsValue>,
@@ -165,7 +168,9 @@ pub mod audit {
                     Ok(value)
                 }
                 Err(err) => {
-                    call.fail(self.error_code).map_err(|audit| Error::new(audit.to_string()))?;
+                    let code = err.code().unwrap_or(self.error_code.as_str());
+                    let recorded = if err.is_refusal() { call.reject(code) } else { call.fail(code) };
+                    recorded.map_err(|audit| Error::new(audit.to_string()))?;
                     Err(err)
                 }
             }

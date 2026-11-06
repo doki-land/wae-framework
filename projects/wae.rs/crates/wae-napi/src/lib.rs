@@ -24,20 +24,42 @@ use std::{
 use sys::*;
 
 /// 薄 N-API 辅助层抛出的错误。
+///
+/// 除说明文本外，错误可以携带审计使用的稳定 code，并区分「执行失败」与
+/// 「能力/授权拒绝」。审计入口据此写入 `failure` 或 `rejected`，不靠文本猜测。
 #[derive(Debug)]
 pub struct Error {
     message: String,
+    code: Option<String>,
+    refused: bool,
 }
 
 impl Error {
     /// 由说明文本构造错误。
     pub fn new(message: impl Into<String>) -> Self {
-        Self { message: message.into() }
+        Self { message: message.into(), code: None, refused: false }
     }
 
     /// 借用错误说明。
     pub fn message(&self) -> &str {
         &self.message
+    }
+
+    /// 标记为能力或授权拒绝，审计记为 `rejected`。
+    pub fn refused(mut self, code: impl Into<String>) -> Self {
+        self.code = Some(code.into());
+        self.refused = true;
+        self
+    }
+
+    /// 稳定 code，缺失时由审计入口回落到默认值。
+    pub fn code(&self) -> Option<&str> {
+        self.code.as_deref()
+    }
+
+    /// 是否属于能力或授权拒绝。
+    pub fn is_refusal(&self) -> bool {
+        self.refused
     }
 }
 

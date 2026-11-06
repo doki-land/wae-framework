@@ -44,6 +44,28 @@ fn facade_records_and_queries_audit_records() {
 }
 
 #[test]
+fn napi_call_separates_refusals_from_failures() {
+    let dir = temp_dir("napi-outcome");
+    let auditor = auditor(&dir);
+
+    let refused =
+        wae::audit::napi_call(&auditor, "install-apply", Mode::Execute).run(|| Err(wae::Error::new("blocked").refused("dependency_blocked")));
+    assert!(refused.is_err());
+    let failed = wae::audit::napi_call(&auditor, "inspect", Mode::Execute).run(|| Err(wae::Error::new("i/o failure")));
+    assert!(failed.is_err());
+
+    let entries = auditor.query(&Query::default()).unwrap();
+    let refusal = entries.iter().find(|entry| entry.capability == "install-apply").unwrap();
+    assert_eq!(refusal.outcome, Outcome::Rejected);
+    assert_eq!(refusal.error_code.as_deref(), Some("dependency_blocked"));
+    let failure = entries.iter().find(|entry| entry.capability == "inspect").unwrap();
+    assert_eq!(failure.outcome, Outcome::Failure);
+    assert_eq!(failure.error_code.as_deref(), Some("wae.audit::error"));
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn napi_entry_builders_are_exposed_on_the_facade() {
     let dir = temp_dir("napi");
     let auditor = auditor(&dir);
