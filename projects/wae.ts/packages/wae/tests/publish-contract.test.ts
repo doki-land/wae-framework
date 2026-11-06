@@ -67,32 +67,78 @@ test('workflows never reintroduce npm token, OTP, or local publish bypasses', ()
     assert.match(cliSource, /'--access',\s*'public'/);
 });
 
-test('publish workflow publishes only the JS packages and no template placeholder', () => {
-    const packagesDir = path.join(repoRoot, 'projects', 'wae.ts', 'packages');
-    const packageDirs = fs.readdirSync(packagesDir)
-        .map((entry) => path.join(packagesDir, entry));
-    const realNames = packageDirs
-        .map((dir) => path.join(dir, 'package.json'))
-        .filter((manifest) => fs.existsSync(manifest))
-        .map((manifest) => JSON.parse(fs.readFileSync(manifest, 'utf8')) as { name: string; private?: boolean })
-        .filter((manifest) => manifest.private !== true)
-        .map((manifest) => manifest.name);
-    assert.ok(realNames.length >= 2, 'expected at least @wae/wae and @wae/commander');
-    for (const name of realNames) {
-        assert.match(name, /^@wae\//);
+test('publish workflow publishes the configured set and no template placeholder', () => {
+    const configSource = fs.readFileSync(path.join(repoRoot, 'nifty.config.ts'), 'utf8');
+    const configured = [...configSource.matchAll(/"(@wae\/[a-z0-9-]+)"/g)]
+        .map((match) => match[1]!);
+    assert.deepEqual(
+        [...configured].sort(),
+        ['@wae/commander', '@wae/wae', '@wae/wae-darwin-arm64', '@wae/wae-linux-x64', '@wae/wae-win32-x64'],
+        'the configured publish set is the two JS packages plus the three native platform packages',
+    );
+
+    // The set lives in one place. The workflow must not enumerate packages itself.
+    assert.doesNotMatch(publishWorkflow, /--package/);
+    assert.doesNotMatch(publishWorkflow, /--dir/);
+    assert.match(publishWorkflow, /pnpm exec nifty publish --access public --version=/);
+    for (const target of ['win32-x64', 'darwin-arm64', 'linux-x64']) {
+        assert.match(publishWorkflow, new RegExp(`wae-${target}`), `the workflow must build wae-${target} on its own runner`);
     }
 
-    const published = new Set([...publishWorkflow.matchAll(/--package\s+(@wae\/[a-z0-9-]+)/gi)]
-        .map((match) => match[1]!));
-    assert.deepEqual([...published].sort(), [...realNames].sort(), 'the workflow must list exactly the JS packages');
-    assert.doesNotMatch(publishWorkflow, /--dir/);
-    for (const name of ['@wae/wae-win32-x64', '@wae/wae-linux-x64', '@wae/wae-darwin-arm64']) {
-        assert.ok(!published.has(name), `${name} belongs to a later release line`);
-    }
-    assert.match(publishWorkflow, /pnpm exec nifty publish --access public/);
     const workspaceFile = fs.readFileSync(path.join(repoRoot, 'pnpm-workspace.yaml'), 'utf8');
     assert.doesNotMatch(workspaceFile, /templates/);
     assert.doesNotMatch(publishWorkflow, /templates/);
+});
+
+test('platform packages describe their os, cpu, artifact and provenance', () => {
+    const version = readWorkspaceVersion(path.join(repoRoot, 'Cargo.toml'));
+    assert.ok(version, 'the Cargo workspace must declare a version');
+
+    const platformsDir = path.join(repoRoot, 'projects', 'wae.ts', 'platforms');
+    const expected: Record<string, { os: string; cpu: string }> = {
+        'wae-win32-x64': { os: 'win32', cpu: 'x64' },
+        'wae-darwin-arm64': { os: 'darwin', cpu: 'arm64' },
+        'wae-linux-x64': { os: 'linux', cpu: 'x64' },
+    };
+    const entries = fs.readdirSync(platformsDir).filter((entry) => entry.startsWith('wae-'));
+    assert.deepEqual([...entries].sort(), Object.keys(expected).sort());
+
+    const hostManifest = JSON.parse(
+        fs.readFileSync(path.join(repoRoot, 'projects', 'wae.ts', 'packages', 'wae', 'package.json'), 'utf8'),
+    ) as { optionalDependencies?: Record<string, string> };
+
+    for (const entry of entries) {
+        const target = entry.slice('wae-'.length);
+        const manifestPath = path.join(platformsDir, entry, 'package.json');
+        const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as {
+            name: string;
+            version: string;
+            license: string;
+            main: string;
+            files: string[];
+            os: string[];
+            cpu: string[];
+            repository: { url: string; directory: string };
+        };
+        assert.equal(manifest.name, `@wae/${entry}`);
+        assert.equal(manifest.version, version, `${manifest.name} version must match the workspace version`);
+        assert.deepEqual(manifest.os, [expected[entry]!.os]);
+        assert.deepEqual(manifest.cpu, [expected[entry]!.cpu]);
+
+        const artifact = `wae.${target}.node`;
+        assert.equal(manifest.main, artifact);
+        assert.ok(manifest.files.includes(artifact), `${manifest.name} files must ship ${artifact}`);
+        assert.equal(manifest.license, 'Apache-2.0');
+        assert.equal(manifest.repository.url, 'git+https://github.com/doki-land/wae-framework.git');
+        assert.equal(
+            manifest.repository.directory,
+            path.relative(repoRoot, path.dirname(manifestPath)).split(path.sep).join('/'),
+            `${manifest.name} repository.directory must match its path`,
+        );
+
+        const optional = hostManifest.optionalDependencies?.[manifest.name];
+        assert.equal(optional, version, `@wae/wae must pin ${manifest.name} to the exact workspace version`);
+    }
 });
 
 test('published manifests point at the provenance repository', () => {

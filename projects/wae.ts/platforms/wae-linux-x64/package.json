@@ -17,7 +17,7 @@
     "main": "wae.linux-x64.node",
     "files": [
         "wae.linux-x64.node",
-      "readme.md"
+        "readme.md"
     ],
     "engines": {
         "node": ">=20"

@@ -13,9 +13,9 @@ name: publish-npm
 # Publishing is delegated to Nifty (`nifty publish --version`), the same path
 # VMZ uses. Do not reintroduce a second publish implementation here.
 #
-# The published set is explicit. Native platform addons (which do not exist on
-# the registry yet and therefore have no Trusted Publisher record) join the set
-# from their own release line, together with the staged artifacts.
+# Every native platform package in the published set is built on its own runner,
+# loaded once with `require()`, and handed to the publish job as an artifact.
+# A missing artifact fails the release instead of publishing an empty package.
 
 on:
   push:
@@ -36,7 +36,44 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  build-native:
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - runner: windows-latest
+            target: win32-x64
+          - runner: macos-14
+            target: darwin-arm64
+          - runner: ubuntu-latest
+            target: linux-x64
+    runs-on: ${{ matrix.runner }}
+    env:
+      CARGO_BUILD_JOBS: "2"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24.12.0"
+          package-manager-cache: false
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Build native addon
+        run: pnpm run build:napi
+      - name: Smoke load the native addon
+        run: pnpm run smoke:napi
+      - uses: actions/upload-artifact@v5
+        with:
+          name: wae-${{ matrix.target }}
+          path: projects/wae.ts/platforms/wae-${{ matrix.target }}/wae.${{ matrix.target }}.node
+          if-no-files-found: error
+          retention-days: 1
+
   publish:
+    needs: build-native
     runs-on: ubuntu-latest
     environment: NPM_PUBLISH
     env:
@@ -58,7 +95,37 @@ jobs:
         run: npm install --global npm@11
       - name: Install
         run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v5
+        with:
+          path: projects/wae.ts/platforms
+          pattern: wae-*
+      - name: Assert every platform artifact is present
+        run: |
+          for target in win32-x64 darwin-arm64 linux-x64; do
+            test -f "projects/wae.ts/platforms/wae-${target}/wae.${target}.node"
+          done
       - name: Build
         run: pnpm run build:ts
-      - name: Publish packages to npm
-        run: pnpm exec nifty publish --access public --version="${RELEASE_TAG#v}" --package @wae/wae --package @wae/commander
+      # The published set comes from `nifty.config.ts`, which lists all five
+      # packages. Native packages are ordered first so `@wae/wae` resolves its
+      # exact optional dependencies from the registry.
+      - name: Publish
+        run: pnpm exec nifty publish --access public --version="${RELEASE_TAG#v}"
+      # A dropped package must fail the release instead of reporting success.
+      # The installed Nifty cannot guarantee that yet, so assert the registry.
+      - name: Verify every package landed on the registry
+        run: |
+          version="${RELEASE_TAG#v}"
+          for name in @wae/wae-win32-x64 @wae/wae-darwin-arm64 @wae/wae-linux-x64 @wae/wae @wae/commander; do
+            for attempt in 1 2 3 4 5; do
+              if npm view "${name}@${version}" version > /dev/null 2>&1; then
+                echo "ok ${name}@${version}"
+                break
+              fi
+              if [ "${attempt}" = 5 ]; then
+                echo "missing ${name}@${version} after 5 attempts"
+                exit 1
+              fi
+              sleep 3
+            done
+          done

@@ -17,24 +17,37 @@ const ARCH_NAMES: Record<string, string> = { x64: 'x86_64', arm64: 'aarch64' };
 
 type WaeNative = {
     version(): string;
-    capabilities(): { platform: string; arch: string; audit: boolean; version: string };
+    capabilities(): { platform: string; arch: string; audit: boolean; version: string; atomic: string[] };
     probe(): { ok: boolean; platform: string; arch: string };
     auditQuery(filter?: { capability?: string; limit?: number }): string;
 };
 
 export function main(root = ROOT): void {
     const target = resolveTarget();
-    const addonPath = path.join(platformDir(root, target), nativeFileName(target));
+    const dir = platformDir(root, target);
+    const addonPath = path.join(dir, nativeFileName(target));
     if (!fs.existsSync(addonPath)) {
         throw new Error(`native addon is missing at ${addonPath}; run \`pnpm build:napi\` first`);
+    }
+
+    const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')) as {
+        name: string;
+        version: string;
+        os: string[];
+        cpu: string[];
+    };
+    if (manifest.os.includes(target.platform) === false || manifest.cpu.includes(target.arch) === false) {
+        throw new Error(
+            `platform package declares os/cpu ${manifest.os.join(',')}/${manifest.cpu.join(',')} but runner is ${target.platform}/${target.arch}`,
+        );
     }
 
     process.env.WAE_AUDIT_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'wae-native-audit-'));
 
     const native: WaeNative = createRequire(import.meta.url)(addonPath);
     const version = native.version();
-    if (!version) {
-        throw new Error('native addon returned an empty version');
+    if (version !== manifest.version) {
+        throw new Error(`native addon version ${version || '<empty>'} does not match ${manifest.name} ${manifest.version}`);
     }
 
     const capabilities = native.capabilities();
@@ -42,6 +55,12 @@ export function main(root = ROOT): void {
         throw new Error(
             `capabilities mismatch: got ${capabilities.platform}/${capabilities.arch}, expected ${PLATFORM_NAMES[target.platform]}/${ARCH_NAMES[target.arch]}`,
         );
+    }
+    if (capabilities.version !== version) {
+        throw new Error(`capabilities version ${capabilities.version} does not match version() ${version}`);
+    }
+    if (!Array.isArray(capabilities.atomic) || capabilities.atomic.length === 0) {
+        throw new Error('capabilities did not list atomic native exports');
     }
 
     const probe = native.probe();

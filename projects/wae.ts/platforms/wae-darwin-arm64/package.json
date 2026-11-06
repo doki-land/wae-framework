@@ -17,7 +17,7 @@
     "main": "wae.darwin-arm64.node",
     "files": [
         "wae.darwin-arm64.node",
-      "readme.md"
+        "readme.md"
     ],
     "engines": {
         "node": ">=20"
