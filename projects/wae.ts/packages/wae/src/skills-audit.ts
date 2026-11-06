@@ -184,7 +184,8 @@ function commandTree(context: AuditContext): Set<string> {
 const flagCache = new Map<string, Set<string>>();
 
 function flagsFor(context: AuditContext, command: string): Set<string> {
-    const cached = flagCache.get(command);
+    const cacheKey = `${context.cli}\u0000${command}`;
+    const cached = flagCache.get(cacheKey);
     if (cached) return cached;
     const lines = runCli(context, [command, '--help']).split(/\r?\n/);
     const start = lines.findIndex((line) => line.trim() === 'Options:');
@@ -196,7 +197,7 @@ function flagsFor(context: AuditContext, command: string): Set<string> {
         const match = line.match(/^\s+(--[a-z0-9-]+)/);
         if (match) flags.add(match[1]!);
     }
-    flagCache.set(command, flags);
+    flagCache.set(cacheKey, flags);
     return flags;
 }
 
