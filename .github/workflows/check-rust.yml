@@ -52,7 +52,7 @@ jobs:
         include:
           - os: windows-latest
             target: win32-x64
-          - os: macos-14
+          - os: macos-latest
             target: darwin-arm64
           - os: ubuntu-latest
             target: linux-x64
@@ -67,6 +67,8 @@ jobs:
         with:
           node-version: "22"
           package-manager-cache: false
+      - name: Report the runner target
+        run: node -p "process.platform + '-' + process.arch"
       - name: Build and stage the native addon
         run: node --experimental-strip-types scripts/build-napi.ts
       - name: Require the staged addon and call a capability
