@@ -12,6 +12,10 @@ name: publish-npm
 #
 # Publishing is delegated to Nifty (`nifty publish --version`), the same path
 # VMZ uses. Do not reintroduce a second publish implementation here.
+#
+# The published set is explicit. Native platform addons (which do not exist on
+# the registry yet and therefore have no Trusted Publisher record) join the set
+# from their own release line, together with the staged artifacts.
 
 on:
   push:
@@ -32,37 +36,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build-native:
-    name: Native addon (${{ matrix.target }})
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            target: win32-x64
-          - os: macos-14
-            target: darwin-arm64
-          - os: ubuntu-latest
-            target: linux-x64
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-node@v5
-        with:
-          node-version: "22"
-      - name: Build and stage the native addon
-        run: node --experimental-strip-types scripts/build-napi.ts
-      - name: Require the staged addon and call a capability
-        run: node --experimental-strip-types scripts/smoke-native.ts
-      - uses: actions/upload-artifact@v5
-        with:
-          name: wae-${{ matrix.target }}
-          path: projects/wae.ts/platforms/wae-${{ matrix.target }}/wae.${{ matrix.target }}.node
-          if-no-files-found: error
-
   publish:
-    needs: build-native
     runs-on: ubuntu-latest
     environment: NPM_PUBLISH
     env:
@@ -71,10 +45,6 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-      - uses: actions/download-artifact@v5
-        with:
-          path: projects/wae.ts/platforms
-          pattern: wae-*
       - uses: pnpm/action-setup@v4
         with:
           version: 10.28.0
@@ -91,4 +61,4 @@ jobs:
       - name: Build
         run: pnpm run build:ts
       - name: Publish packages to npm
-        run: pnpm exec nifty publish --access public --version="${RELEASE_TAG#v}"
+        run: pnpm exec nifty publish --access public --version="${RELEASE_TAG#v}" --package @wae/wae --package @wae/commander

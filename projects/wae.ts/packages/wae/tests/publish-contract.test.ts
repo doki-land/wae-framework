@@ -67,12 +67,10 @@ test('workflows never reintroduce npm token, OTP, or local publish bypasses', ()
     assert.match(cliSource, /'--access',\s*'public'/);
 });
 
-test('publish workflow covers every real @wae package and no template placeholder', () => {
+test('publish workflow publishes only the JS packages and no template placeholder', () => {
     const packagesDir = path.join(repoRoot, 'projects', 'wae.ts', 'packages');
-    const platformsDir = path.join(repoRoot, 'projects', 'wae.ts', 'platforms');
     const packageDirs = fs.readdirSync(packagesDir)
-        .map((entry) => path.join(packagesDir, entry))
-        .concat(fs.readdirSync(platformsDir).map((entry) => path.join(platformsDir, entry)));
+        .map((entry) => path.join(packagesDir, entry));
     const realNames = packageDirs
         .map((dir) => path.join(dir, 'package.json'))
         .filter((manifest) => fs.existsSync(manifest))
@@ -84,13 +82,16 @@ test('publish workflow covers every real @wae package and no template placeholde
         assert.match(name, /^@wae\//);
     }
 
-    const dirs = new Set([...publishWorkflow.matchAll(/--dir\s+([^\s\\]+)/g)].map((match) => match[1]!));
-    assert.equal(dirs.size, 0, 'the workflow must not enumerate package directories');
-    const workspaceFile = fs.readFileSync(path.join(repoRoot, 'pnpm-workspace.yaml'), 'utf8');
-    assert.match(workspaceFile, /projects\/wae\.ts\/packages\/\*/);
-    assert.match(workspaceFile, /projects\/wae\.ts\/platforms\/\*/);
-    assert.doesNotMatch(workspaceFile, /templates/);
+    const published = new Set([...publishWorkflow.matchAll(/--package\s+(@wae\/[a-z0-9-]+)/gi)]
+        .map((match) => match[1]!));
+    assert.deepEqual([...published].sort(), [...realNames].sort(), 'the workflow must list exactly the JS packages');
+    assert.doesNotMatch(publishWorkflow, /--dir/);
+    for (const name of ['@wae/wae-win32-x64', '@wae/wae-linux-x64', '@wae/wae-darwin-arm64']) {
+        assert.ok(!published.has(name), `${name} belongs to a later release line`);
+    }
     assert.match(publishWorkflow, /pnpm exec nifty publish --access public/);
+    const workspaceFile = fs.readFileSync(path.join(repoRoot, 'pnpm-workspace.yaml'), 'utf8');
+    assert.doesNotMatch(workspaceFile, /templates/);
     assert.doesNotMatch(publishWorkflow, /templates/);
 });
 
