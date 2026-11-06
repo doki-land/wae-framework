@@ -4,6 +4,9 @@
  * The addon is optional and platform specific. Resolution is exact: when the platform is not
  * published, or the platform package is installed without its artifact, this throws a structured
  * `NativeUnsupportedError` instead of falling back to a JavaScript implementation.
+ *
+ * Callers require the platform package (or its checkout directory). `package.json#main` owns the
+ * `.node` filename — loaders never concatenate it.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -76,7 +79,12 @@ export function platformPackageName(key: string): string | undefined {
     return PLATFORM_PACKAGES[key];
 }
 
-/** Addon file name inside the platform package. */
+/**
+ * Addon file name inside the platform package.
+ *
+ * Staging / build tooling may still need this. Runtime loaders must not use it —
+ * they require the package and let `package.json#main` choose the file.
+ */
 export function nativeFileName(key: string): string {
     return `wae.${key}.node`;
 }
@@ -141,7 +149,10 @@ export type NativeResolveOptions = {
     exists?: (file: string) => boolean;
 };
 
-/** Candidate `.node` paths for the current or injected platform. */
+/**
+ * Module specifiers to try: the installed platform package name, then the
+ * repository checkout directory that contains that package's `package.json`.
+ */
 export function nativeCandidates(options: NativeResolveOptions = {}): string[] {
     const platform = options.platform ?? process.platform;
     const arch = options.arch ?? process.arch;
@@ -152,23 +163,9 @@ export function nativeCandidates(options: NativeResolveOptions = {}): string[] {
     }
 
     const here = options.here ?? HERE;
-    const file = nativeFileName(key);
-    const resolve = options.resolve ?? ((specifier: string) => NATIVE_REQUIRE.resolve(specifier));
-    const candidates: string[] = [];
-
-    try {
-        const manifest = resolve(`${packageName}/package.json`);
-        candidates.push(path.join(path.dirname(manifest), file));
-    } catch {
-        // The optional platform package is not installed here, or has no manifest.
-        // A missing package must not silently degrade: the candidate list stays empty
-        // unless the repository-local platform package below exists.
-    }
-
-    // Repository checkout: packages/wae/<src|dist> -> wae.ts/platforms/<package>.
-    candidates.push(path.resolve(here, '..', '..', '..', 'platforms', `wae-${key}`, file));
-    // A workspace install resolves the platform package to the same checkout directory.
-    return [...new Set(candidates)];
+    // packages/wae/<src|dist> → wae.ts/platforms/<package>
+    const localPackage = path.resolve(here, '..', '..', '..', 'platforms', `wae-${key}`);
+    return [packageName, localPackage];
 }
 
 /** Resolve the addon path, throwing `NativeUnsupportedError` when no candidate exists. */
@@ -185,18 +182,28 @@ export function resolveNativePath(options: NativeResolveOptions = {}): string {
         );
     }
 
+    const resolve = options.resolve ?? ((specifier: string) => NATIVE_REQUIRE.resolve(specifier));
     const exists = options.exists ?? fs.existsSync;
+    const attempts: string[] = [];
+
     for (const candidate of candidates) {
-        if (exists(candidate)) {
-            return candidate;
+        try {
+            const resolved = resolve(candidate);
+            attempts.push(resolved);
+            if (exists(resolved)) {
+                return resolved;
+            }
+        }
+        catch {
+            attempts.push(candidate);
         }
     }
 
     const packageName = PLATFORM_PACKAGES[key];
     throw new NativeUnsupportedError(
         key,
-        candidates,
-        `\`${packageName}\` is present for \`${key}\` but \`${nativeFileName(key)}\` is missing; install the platform package or run \`pnpm build:napi\``,
+        attempts,
+        `\`${packageName}\` could not be resolved for \`${key}\` through \`package.json#main\`; install the platform package or run \`pnpm build:napi\``,
     );
 }
 

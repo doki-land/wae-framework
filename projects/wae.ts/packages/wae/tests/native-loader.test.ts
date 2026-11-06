@@ -16,6 +16,7 @@ import {
 } from '../src/native.ts';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+const WIN32_NODE = path.join('node_modules', '@wae', 'wae-win32-x64', 'wae.win32-x64.node');
 
 function capture<T>(type: new (...args: never[]) => T, run: () => unknown): T {
     try {
@@ -51,7 +52,7 @@ test('resolveNativePath rejects an unpublished platform with capability and plat
     });
 });
 
-test('resolveNativePath reports every attempted path when the artifact is missing', () => {
+test('resolveNativePath reports every attempted specifier when the artifact is missing', () => {
     const error = capture(NativeUnsupportedError, () =>
         resolveNativePath({
             platform: 'win32',
@@ -64,41 +65,44 @@ test('resolveNativePath reports every attempted path when the artifact is missin
         }),
     );
     assert.equal(error.platform, 'win32-x64');
-    assert.equal(error.attempts.length, 1);
-    assert.match(error.attempts[0], /platforms[\\/]wae-win32-x64[\\/]wae\.win32-x64\.node/);
+    assert.equal(error.attempts.length, 2);
+    assert.equal(error.attempts[0], '@wae/wae-win32-x64');
+    assert.match(error.attempts[1], /platforms[\\/]wae-win32-x64$/);
     assert.match(error.message, /@wae\/wae-win32-x64/);
 });
 
-test('resolveNativePath prefers the resolver result and falls back to the checkout', () => {
-    const installed = path.join('node_modules', '@wae', 'wae-win32-x64', 'package.json');
+test('resolveNativePath prefers the package specifier and falls back to the checkout directory', () => {
     const candidates = nativeCandidates({
         platform: 'win32',
         arch: 'x64',
         here: HERE,
-        resolve: () => installed,
     });
     assert.equal(candidates.length, 2);
-    assert.equal(candidates[0], path.join('node_modules', '@wae', 'wae-win32-x64', 'wae.win32-x64.node'));
-    assert.ok(candidates[1].includes(path.join('platforms', 'wae-win32-x64', 'wae.win32-x64.node')));
+    assert.equal(candidates[0], '@wae/wae-win32-x64');
+    assert.ok(candidates[1].includes(path.join('platforms', 'wae-win32-x64')));
 
     const resolved = resolveNativePath({
         platform: 'win32',
         arch: 'x64',
         here: HERE,
-        resolve: () => installed,
-        exists: (file) => file === candidates[0],
+        resolve: (specifier) => {
+            if (specifier === '@wae/wae-win32-x64') return WIN32_NODE;
+            throw new Error(`unexpected specifier ${specifier}`);
+        },
+        exists: (file) => file === WIN32_NODE,
     });
-    assert.equal(resolved, candidates[0]);
+    assert.equal(resolved, WIN32_NODE);
 });
 
 test('loadNative returns the binding and wraps load failures structurally', () => {
     const binding = { version: () => '0.0.1' };
+    const addon = path.join(HERE, 'wae.win32-x64.node');
     assert.equal(
         loadNative({
             platform: 'win32',
             arch: 'x64',
             here: HERE,
-            resolve: () => path.join(HERE, 'package.json'),
+            resolve: () => addon,
             exists: () => true,
             load: () => binding,
         }),
@@ -110,7 +114,7 @@ test('loadNative returns the binding and wraps load failures structurally', () =
             platform: 'win32',
             arch: 'x64',
             here: HERE,
-            resolve: () => path.join(HERE, 'package.json'),
+            resolve: () => addon,
             exists: () => true,
             load: () => {
                 throw new Error('bad image');
@@ -120,17 +124,18 @@ test('loadNative returns the binding and wraps load failures structurally', () =
     assert.equal(error.code, 'native_load_failed');
     assert.equal(error.capability, 'native-addon');
     assert.equal(error.platform, 'win32-x64');
-    assert.equal(error.path, path.join(HERE, 'wae.win32-x64.node'));
+    assert.equal(error.path, addon);
 });
 
 test('native load failure keeps the original error as cause', () => {
     const original = new Error('bad image');
+    const addon = path.join(HERE, 'wae.win32-x64.node');
     const error = capture(NativeLoadError, () =>
         loadNative({
             platform: 'win32',
             arch: 'x64',
             here: HERE,
-            resolve: () => path.join(HERE, 'package.json'),
+            resolve: () => addon,
             exists: () => true,
             load: () => {
                 throw original;
@@ -142,11 +147,12 @@ test('native load failure keeps the original error as cause', () => {
 
 test('inspectNative reports the resolved path, version, capabilities and audit wiring', () => {
     const capabilities = { platform: 'windows', arch: 'x64', audit: true, version: '0.0.2', atomic: ['findArtifact'] };
+    const addon = path.join(HERE, 'wae.win32-x64.node');
     const report = inspectNative({
         platform: 'win32',
         arch: 'x64',
         here: HERE,
-        resolve: () => path.join(HERE, 'package.json'),
+        resolve: () => addon,
         exists: () => true,
         load: () => ({
             version: () => '0.0.2',
@@ -156,7 +162,7 @@ test('inspectNative reports the resolved path, version, capabilities and audit w
         }),
     });
     assert.equal(report.platformKey, 'win32-x64');
-    assert.equal(report.path, path.join(HERE, 'wae.win32-x64.node'));
+    assert.equal(report.path, addon);
     assert.equal(report.version, '0.0.2');
     assert.deepEqual(report.capabilities, capabilities);
     assert.deepEqual(report.probe, { ok: true, platform: 'windows', arch: 'x64' });
