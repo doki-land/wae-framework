@@ -69,8 +69,12 @@ test('workflows never reintroduce npm token, OTP, or local publish bypasses', ()
 
 test('publish workflow covers every real @wae package and no template placeholder', () => {
     const packagesDir = path.join(repoRoot, 'projects', 'wae.ts', 'packages');
-    const realNames = fs.readdirSync(packagesDir)
-        .map((entry) => path.join(packagesDir, entry, 'package.json'))
+    const platformsDir = path.join(packagesDir, 'platforms');
+    const packageDirs = fs.readdirSync(packagesDir)
+        .map((entry) => path.join(packagesDir, entry))
+        .concat(fs.readdirSync(platformsDir).map((entry) => path.join(platformsDir, entry)));
+    const realNames = packageDirs
+        .map((dir) => path.join(dir, 'package.json'))
         .filter((manifest) => fs.existsSync(manifest))
         .map((manifest) => JSON.parse(fs.readFileSync(manifest, 'utf8')) as { name: string; private?: boolean })
         .filter((manifest) => manifest.private !== true)

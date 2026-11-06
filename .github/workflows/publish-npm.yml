@@ -22,7 +22,37 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  build-native:
+    name: Native addon (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: win32-x64
+          - os: macos-14
+            target: darwin-arm64
+          - os: ubuntu-latest
+            target: linux-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+      - name: Build and stage the native addon
+        run: node --experimental-strip-types scripts/build-napi.ts
+      - name: Require the staged addon and call a capability
+        run: node --experimental-strip-types scripts/smoke-native.ts
+      - uses: actions/upload-artifact@v5
+        with:
+          name: wae-${{ matrix.target }}
+          path: projects/wae.ts/packages/platforms/wae-${{ matrix.target }}/wae.${{ matrix.target }}.node
+          if-no-files-found: error
+
   publish:
+    needs: build-native
     runs-on: ubuntu-latest
     environment: NPM_PUBLISH
     env:
@@ -31,6 +61,10 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+      - uses: actions/download-artifact@v5
+        with:
+          path: projects/wae.ts/packages/platforms
+          pattern: wae-*
       - uses: pnpm/action-setup@v4
         with:
           version: 10.28.0
@@ -52,6 +86,9 @@ jobs:
           pnpm exec wae publish \
             --dir projects/wae.ts/packages/wae \
             --dir projects/wae.ts/packages/wae-commander \
+            --dir projects/wae.ts/packages/platforms/wae-win32-x64 \
+            --dir projects/wae.ts/packages/platforms/wae-darwin-arm64 \
+            --dir projects/wae.ts/packages/platforms/wae-linux-x64 \
             --tag "${RELEASE_TAG}" \
             --cargo Cargo.toml
       - name: Publish via Trusted Publisher (OIDC)
@@ -59,6 +96,9 @@ jobs:
           pnpm exec wae publish \
             --dir projects/wae.ts/packages/wae \
             --dir projects/wae.ts/packages/wae-commander \
+            --dir projects/wae.ts/packages/platforms/wae-win32-x64 \
+            --dir projects/wae.ts/packages/platforms/wae-darwin-arm64 \
+            --dir projects/wae.ts/packages/platforms/wae-linux-x64 \
             --tag "${RELEASE_TAG}" \
             --cargo Cargo.toml \
             --ci

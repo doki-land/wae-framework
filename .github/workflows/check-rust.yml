@@ -43,3 +43,27 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: test
         run: cargo test --workspace
+
+  native:
+    name: Native addon (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: win32-x64
+          - os: macos-14
+            target: darwin-arm64
+          - os: ubuntu-latest
+            target: linux-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+      - name: Build and stage the native addon
+        run: node --experimental-strip-types scripts/build-napi.ts
+      - name: Require the staged addon and call a capability
+        run: node --experimental-strip-types scripts/smoke-native.ts
