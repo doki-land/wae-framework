@@ -46,9 +46,12 @@ fn js_string_literal(text: &str) -> String {
 pub struct OpenOptions {
     /// 窗口标题。
     pub title: String,
-    /// 初始宽度（像素）。
+    /// 初始宽度（逻辑像素 / DIP，96 DPI 基准）。
+    ///
+    /// 与 macOS / Linux 后端的点、GTK 逻辑像素一致；Windows 后端按窗口所在
+    /// 监视器的有效 DPI 换算为物理像素。
     pub width: i32,
-    /// 初始高度（像素）。
+    /// 初始高度（逻辑像素 / DIP，96 DPI 基准）。
     pub height: i32,
     /// 映射到 `https://app.local/` 的本地内容目录（推荐，规避 `file://` 编码问题）。
     ///
@@ -113,10 +116,29 @@ pub enum Platform {
     Linux,
 }
 
+/// 宿主层失败的结构化原因。
+///
+/// 每个失败必须能回答三件事：稳定错误码、失败阶段、底层错误码（HRESULT 或
+/// Win32 错误码）；必要时附带已经尝试过的路径，供本地化与排障使用。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostFailure {
+    /// 稳定错误码，例如 `webview2_runtime_missing`。
+    pub code: &'static str,
+    /// 失败阶段，例如 `resolve_runtime` / `create_window`。
+    pub stage: &'static str,
+    /// 底层 HRESULT 或 Win32 错误码。
+    pub hresult: Option<i32>,
+    /// 说明文本。
+    pub message: String,
+    /// 已经尝试过的路径或探测位置。
+    pub attempted: Vec<String>,
+}
+
 /// 打开或驱动 WebView 宿主时的失败。
 ///
 /// 平台缺少能力时必须用 [`WebViewError::Unsupported`]（携带 [`Capability`] 与
 /// [`Platform`]），由调用方按结构化字段判别与本地化；不得用字符串表达平台不支持。
+/// 宿主层运行时失败用 [`WebViewError::Host`]，禁止只回传一句无阶段、无错误码的文本。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WebViewError {
     /// 当前平台不具备该能力。
@@ -126,7 +148,9 @@ pub enum WebViewError {
         /// 编译目标平台。
         platform: Platform,
     },
-    /// 带说明文本的运行时失败。
+    /// 宿主层运行时失败（窗口、WebView2 运行时、环境、controller、导航等）。
+    Host(HostFailure),
+    /// 带说明文本的运行时失败（历史入口，新代码应使用 [`WebViewError::Host`]）。
     Message(String),
 }
 
@@ -136,11 +160,56 @@ impl WebViewError {
         Self::Unsupported { capability, platform }
     }
 
+    /// 构造结构化的宿主层失败。
+    pub fn host(code: &'static str, stage: &'static str, message: impl Into<String>) -> Self {
+        Self::Host(HostFailure { code, stage, hresult: None, message: message.into(), attempted: Vec::new() })
+    }
+
+    /// 记录底层 HRESULT / Win32 错误码。
+    pub fn with_hresult(mut self, hresult: i32) -> Self {
+        if let Self::Host(failure) = &mut self {
+            failure.hresult = Some(hresult);
+        }
+        self
+    }
+
+    /// 记录已经尝试过的路径或探测位置。
+    pub fn with_attempted(mut self, attempted: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        if let Self::Host(failure) = &mut self {
+            failure.attempted = attempted.into_iter().map(Into::into).collect();
+        }
+        self
+    }
+
+    /// 失败错误码；仅 [`WebViewError::Host`] 有。
+    pub fn code(&self) -> Option<&'static str> {
+        match self {
+            Self::Host(failure) => Some(failure.code),
+            _ => None,
+        }
+    }
+
+    /// 失败阶段；仅 [`WebViewError::Host`] 有。
+    pub fn stage(&self) -> Option<&'static str> {
+        match self {
+            Self::Host(failure) => Some(failure.stage),
+            _ => None,
+        }
+    }
+
+    /// 底层 HRESULT / Win32 错误码；仅 [`WebViewError::Host`] 且已知时有。
+    pub fn hresult(&self) -> Option<i32> {
+        match self {
+            Self::Host(failure) => failure.hresult,
+            _ => None,
+        }
+    }
+
     /// 若为 [`WebViewError::Unsupported`]，返回缺少的能力。
     pub fn capability(&self) -> Option<Capability> {
         match self {
             Self::Unsupported { capability, .. } => Some(*capability),
-            Self::Message(_) => None,
+            Self::Host(_) | Self::Message(_) => None,
         }
     }
 
@@ -148,7 +217,7 @@ impl WebViewError {
     pub fn platform(&self) -> Option<Platform> {
         match self {
             Self::Unsupported { platform, .. } => Some(*platform),
-            Self::Message(_) => None,
+            Self::Host(_) | Self::Message(_) => None,
         }
     }
 }
@@ -158,6 +227,16 @@ impl fmt::Display for WebViewError {
         match self {
             Self::Unsupported { capability, platform } => {
                 write!(f, "capability {capability:?} is not supported on platform {platform:?}")
+            }
+            Self::Host(failure) => {
+                write!(f, "{} (stage {}): {}", failure.code, failure.stage, failure.message)?;
+                if let Some(hresult) = failure.hresult {
+                    write!(f, " [hresult=0x{hresult:08X}]")?;
+                }
+                if !failure.attempted.is_empty() {
+                    write!(f, " [tried: {}]", failure.attempted.join(", "))?;
+                }
+                Ok(())
             }
             Self::Message(msg) => f.write_str(msg),
         }
@@ -279,6 +358,7 @@ mod tests {
                 assert_eq!(*capability, Capability::EventPump);
                 assert_eq!(*platform, Platform::Linux);
             }
+            WebViewError::Host(failure) => panic!("unexpected host error: {failure:?}"),
             WebViewError::Message(message) => panic!("unexpected message error: {message}"),
         }
         assert!(error.to_string().contains("EventPump"));
@@ -286,5 +366,21 @@ mod tests {
         let runtime = WebViewError::Message("boom".into());
         assert_eq!(runtime.capability(), None);
         assert_eq!(runtime.platform(), None);
+    }
+
+    #[test]
+    fn host_error_carries_code_stage_hresult_and_attempted() {
+        let error = WebViewError::host("webview2_runtime_missing", "resolve_runtime", "missing runtime")
+            .with_hresult(0x8000_4005u32 as i32)
+            .with_attempted(["HKLM\\EdgeUpdate", "HKCU\\EdgeUpdate"]);
+        assert_eq!(error.code(), Some("webview2_runtime_missing"));
+        assert_eq!(error.stage(), Some("resolve_runtime"));
+        assert_eq!(error.hresult(), Some(0x8000_4005u32 as i32));
+        assert_eq!(error.capability(), None);
+        assert_eq!(error.platform(), None);
+        let text = error.to_string();
+        assert!(text.contains("webview2_runtime_missing (stage resolve_runtime): missing runtime"));
+        assert!(text.contains("hresult=0x80004005"));
+        assert!(text.contains("tried: HKLM\\EdgeUpdate, HKCU\\EdgeUpdate"));
     }
 }
