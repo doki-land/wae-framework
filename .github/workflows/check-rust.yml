@@ -60,9 +60,13 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.0
       - uses: actions/setup-node@v5
         with:
           node-version: "22"
+          package-manager-cache: false
       - name: Build and stage the native addon
         run: node --experimental-strip-types scripts/build-napi.ts
       - name: Require the staged addon and call a capability
