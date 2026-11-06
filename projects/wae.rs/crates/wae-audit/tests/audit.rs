@@ -114,11 +114,12 @@ fn sensitive_values_never_reach_the_log() {
             "privateKey": "-----BEGIN RSA PRIVATE KEY-----\nKEYMATERIAL\n-----END RSA PRIVATE KEY-----",
             "nested": { "cookie": "COOKIEVALUE", "keep": "visible" },
         }))
+        .targets(1, "Bearer SUMMARYSECRET")
         .succeed()
         .unwrap();
 
     let raw = read_lines(tmp.path()).join("\n");
-    for secret in ["TOKENVALUE", "PASSWORDVALUE", "APIKEYVALUE", "BEARERVALUE", "KEYMATERIAL", "COOKIEVALUE"] {
+    for secret in ["TOKENVALUE", "PASSWORDVALUE", "APIKEYVALUE", "BEARERVALUE", "KEYMATERIAL", "COOKIEVALUE", "SUMMARYSECRET"] {
         assert!(!raw.contains(secret), "日志仍包含敏感值 {secret}");
     }
     assert!(raw.contains("<redacted>"));

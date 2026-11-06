@@ -56,7 +56,7 @@ fn is_sensitive_key(key: &str) -> bool {
     SENSITIVE_KEYS.iter().any(|needle| normalized.contains(needle))
 }
 
-fn sanitize_text(text: &str) -> String {
+pub(crate) fn sanitize_text(text: &str) -> String {
     if text.contains("-----BEGIN") && text.contains("PRIVATE KEY") {
         return REDACTED.into();
     }

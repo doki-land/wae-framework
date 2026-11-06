@@ -52,6 +52,7 @@ impl Store {
     pub fn append(&self, entry: &Entry) -> AuditResult<()> {
         let mut record = entry.clone();
         record.params = sanitize_params(record.params);
+        record.targets.summary = crate::sanitize::sanitize_text(&record.targets.summary);
         let line = serde_json::to_string(&record)?;
         self.append_line(&line)
     }
