@@ -1,6 +1,6 @@
 {
     "name": "@wae/commander",
-    "version": "0.0.0",
+    "version": "0.0.1",
     "type": "module",
     "description": "i18n-first TypeScript CLI framework (command tree, locales loading, commander.* chrome)",
     "license": "MIT",
