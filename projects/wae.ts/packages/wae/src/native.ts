@@ -154,7 +154,8 @@ export function nativeCandidates(options: NativeResolveOptions = {}): string[] {
 
     // Repository checkout: packages/wae/<src|dist> -> wae.ts/platforms/<package>.
     candidates.push(path.resolve(here, '..', '..', '..', 'platforms', `wae-${key}`, file));
-    return candidates;
+    // A workspace install resolves the platform package to the same checkout directory.
+    return [...new Set(candidates)];
 }
 
 /** Resolve the addon path, throwing `NativeUnsupportedError` when no candidate exists. */
@@ -198,19 +199,26 @@ export type NativeInspection = {
     path: string;
     version: string;
     capabilities: NativeCapabilities;
+    probe: NativeProbe;
+    /** Audit entries recorded for the probe call, proving the audit facility is wired. */
+    auditEntries: number;
 };
 
-/** Resolve the addon, load it, and report the version and capabilities it exposes. */
+/** Resolve the addon, load it, probe it, and report what it exposes. */
 export function inspectNative(
     options: NativeResolveOptions & { load?: (file: string) => unknown } = {},
 ): NativeInspection {
     const addonPath = resolveNativePath(options);
     const addon = loadAt(addonPath, platformKey(options), options.load ?? ((file: string) => NATIVE_REQUIRE(file)));
+    const probe = addon.probe();
+    const entries = JSON.parse(addon.auditQuery({ capability: 'wae.native.probe', limit: 5 })) as unknown;
     return {
         platformKey: platformKey(options),
         path: addonPath,
         version: addon.version(),
         capabilities: addon.capabilities(),
+        probe,
+        auditEntries: Array.isArray(entries) ? entries.length : 0,
     };
 }
 

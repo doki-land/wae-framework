@@ -164,7 +164,8 @@ async function cmdNativeInfo(options: ParsedOptions): Promise<number> {
         console.log(`platform: ${report.platformKey}`);
         console.log(`path: ${report.path}`);
         console.log(`version: ${report.version}`);
-        console.log(`audit: ${String(report.capabilities.audit)}`);
+        console.log(`probe: ${report.probe.ok ? 'ok' : 'failed'} (${report.probe.platform}/${report.probe.arch})`);
+        console.log(`audit: ${String(report.capabilities.audit)} (probe entries: ${report.auditEntries})`);
         const atomic = report.capabilities.atomic ?? [];
         if (atomic.length) {
             console.log(`atomic: ${atomic.join(', ')}`);
