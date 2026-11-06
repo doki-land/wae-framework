@@ -5,6 +5,9 @@
 #![deny(missing_docs)]
 
 #[cfg(windows)]
+mod dpi;
+
+#[cfg(windows)]
 mod win32;
 
 #[cfg(windows)]
