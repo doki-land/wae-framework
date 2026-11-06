@@ -69,7 +69,9 @@ jobs:
           package-manager-cache: false
       - name: Report the runner target
         run: node -p "process.platform + '-' + process.arch"
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
       - name: Build and stage the native addon
-        run: node --experimental-strip-types scripts/build-napi.ts
+        run: pnpm run build:napi
       - name: Require the staged addon and call a capability
-        run: node --experimental-strip-types scripts/smoke-native.ts
+        run: pnpm run smoke:napi

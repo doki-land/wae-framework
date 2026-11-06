@@ -284,6 +284,7 @@ class StaticParser {
 
     parse(): Record<string, unknown> {
         this.skipSpace();
+        this.skipImports();
         this.expectWord('export');
         this.skipSpace();
         this.expectWord('default');
@@ -316,6 +317,32 @@ class StaticParser {
             throw new WaeConfigError('config_invalid', `${this.file}: the default export must be an object literal`, this.file);
         }
         return value;
+    }
+
+    /**
+     * Skip leading `import` statements. They are never evaluated here, so a
+     * config may import `defineConfig` for editor and `tsc` typing.
+     */
+    private skipImports(): void {
+        while (this.peekWord() === 'import') {
+            this.readWord();
+            let depth = 0;
+            while (this.index < this.source.length) {
+                const char = this.source[this.index]!;
+                if (char === '"' || char === "'" || char === '`') {
+                    this.index = quotedEnd(this.source, this.index);
+                    continue;
+                }
+                if (char === '{') depth += 1;
+                if (char === '}') depth -= 1;
+                if (char === ';' || (char === '\n' && depth === 0)) {
+                    this.index += 1;
+                    break;
+                }
+                this.index += 1;
+            }
+            this.skipSpace();
+        }
     }
 
     private readValue(): unknown {

@@ -20,4 +20,4 @@ WAE 门面的 Node-API addon（cdylib）。使用 `wae-napi` 的手写 C ABI（d
 
 ## 构建
 
-在仓库根执行 `pnpm build:napi`，产物由 `scripts/build-napi.ts` 暂存到对应平台包。
+在仓库根执行 `pnpm build:napi`，产物由 `wae native build` 暂存到对应平台包。

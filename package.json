@@ -10,12 +10,13 @@
     "scripts": {
         "check:rust": "cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace",
         "build:ts": "pnpm -r --filter \"./projects/wae.ts/packages/**\" run build",
-        "build:napi": "node --experimental-strip-types scripts/build-napi.ts",
-        "stage:napi": "node --experimental-strip-types scripts/stage-native.ts",
-        "smoke:napi": "node --experimental-strip-types scripts/smoke-native.ts",
+        "build": "pnpm run wae build",
+        "build:napi": "pnpm run wae native build",
+        "stage:napi": "pnpm run wae native stage",
+        "smoke:napi": "pnpm run wae native smoke",
         "test:ts": "pnpm -r --filter \"./projects/wae.ts/packages/**\" run test",
         "test": "pnpm run check:rust && pnpm run test:ts",
-        "wae": "pnpm --filter @wae/wae exec node ./dist/cli.js"
+        "wae": "pnpm run build:ts && node projects/wae.ts/packages/wae/dist/cli.js"
     },
     "devDependencies": {
         "@doki-land/nifty": "^0.1.10",
