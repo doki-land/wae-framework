@@ -50,7 +50,7 @@ jobs:
           version: 10.28.0
       - uses: actions/setup-node@v5
         with:
-          node-version: "22"
+          node-version: "24.12.0"
           # Leave npm auth unset here: a placeholder token in the runner npmrc
           # blocks Trusted Publisher OIDC.
           package-manager-cache: false
