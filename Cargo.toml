@@ -9,6 +9,7 @@ members = [
     "projects/wae.rs/crates/wae-webview-macos",
     "projects/wae.rs/crates/wae-webview-linux",
     "projects/wae.rs/crates/wae-dist",
+    "projects/wae.rs/crates/wae-audit",
 ]
 default-members = [
     "projects/wae.rs/crates/wae",
@@ -19,6 +20,7 @@ default-members = [
     "projects/wae.rs/crates/wae-webview-macos",
     "projects/wae.rs/crates/wae-webview-linux",
     "projects/wae.rs/crates/wae-dist",
+    "projects/wae.rs/crates/wae-audit",
 ]
 
 [workspace.package]
@@ -31,6 +33,8 @@ repository = "https://github.com/oovm/wae"
 [workspace.dependencies]
 thiserror = "2"
 libloading = "0.9"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 [profile.release]
 lto = true

@@ -1,0 +1,15 @@
+[package]
+name = "wae-audit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+readme = "readme.md"
+description = "WAE 审计记录：固定 schema、脱敏、append-only JSONL 与查询"
+publish = false
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
