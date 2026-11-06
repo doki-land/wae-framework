@@ -173,9 +173,9 @@ test('loadConfig falls back to the default convention without a file', () => {
 test('--package override changes only the native crate', () => {
     const root = tempDir();
     try {
-        writeFile(path.join(root, WAE_CONFIG_FILE), FULL_CONFIG);
-        // Pin the target so this stays host-independent: on Linux CI the default
-        // host target (`linux-x64`) is not part of the fixture.
+        // Pin the target and allow cross compilation so this stays host-independent:
+        // on Linux and macOS CI the fixture's only target is not the host.
+        writeFile(path.join(root, WAE_CONFIG_FILE), FULL_CONFIG.replace("crossCompile: 'reject'", "crossCompile: 'allow'"));
         const report = runBuild({
             startDir: root,
             packageOverride: 'other-napi',
