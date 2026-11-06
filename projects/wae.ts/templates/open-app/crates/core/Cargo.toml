@@ -1,0 +1,15 @@
+[package]
+name = "{{nameSnake}}-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "{{nameTitle}} domain model, capability states, and install planning"
+publish = false
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

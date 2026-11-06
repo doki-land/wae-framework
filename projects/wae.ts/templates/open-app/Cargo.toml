@@ -1,0 +1,24 @@
+[workspace]
+resolver = "2"
+members = ["crates/core", "crates/napi"]
+default-members = ["crates/core", "crates/napi"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.90"
+license = "Apache-2.0"
+authors = ["{{nameTitle}} Authors"]
+repository = "https://github.com/your-org/{{name}}"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+# Cross-repo git dependencies must pin the full 40-character revision.
+wae = { git = "https://github.com/doki-land/wae-framework.git", rev = "1ca7cca68348e7588833395bb4fcdf0bdadf8446" }
+{{nameSnake}}-core = { path = "crates/core", version = "0.0.0" }
+
+[profile.release]
+lto = true
+panic = "abort"
