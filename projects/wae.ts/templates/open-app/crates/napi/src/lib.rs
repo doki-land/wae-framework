@@ -101,9 +101,17 @@ fn reply(value: Value) -> String {
 
 fn core_error(error: CoreError) -> Error {
     let payload = error.payload();
-    match serde_json::to_string(&payload) {
-        Ok(json) => Error::new(format!("wae.error:{json}")),
-        Err(_) => Error::new("wae.error:{\"code\":\"message\",\"message\":\"error payload serialization failed\"}"),
+    let text = match serde_json::to_string(&payload) {
+        Ok(json) => format!("wae.error:{json}"),
+        Err(_) => "wae.error:{\"code\":\"message\",\"message\":\"error payload serialization failed\"}".to_string(),
+    };
+    // Capability errors are refusals, so the audit record uses `rejected` with the
+    // capability state code instead of a generic execution failure.
+    if matches!(&error, CoreError::Capability { .. }) {
+        Error::new(text).refused(error.code())
+    }
+    else {
+        Error::new(text)
     }
 }
 
