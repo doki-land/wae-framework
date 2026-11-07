@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { buildCli } from '../src/cli.ts';
+import { cargoBuildNative } from '../src/native-stage.ts';
 
 function stageProject(config: string): string {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wae-native-stage-'));
@@ -62,6 +63,19 @@ export default defineConfig({
     } finally {
         if (previous === undefined) delete process.env.WAE_STAGE_TARGET;
         else process.env.WAE_STAGE_TARGET = previous;
+        fs.rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test('cargo spawn failures report the underlying error', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wae-cargo-spawn-'));
+    fs.writeFileSync(path.join(root, 'Cargo.toml'), '[workspace]\n');
+    try {
+        assert.throws(
+            () => cargoBuildNative({ root, crate: 'tool-napi', env: { PATH: '' } }),
+            /could not start/,
+        );
+    } finally {
         fs.rmSync(root, { recursive: true, force: true });
     }
 });

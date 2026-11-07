@@ -101,10 +101,22 @@ export function cargoBuildNative(options: NativeBuildOptions): void {
         stdio: 'inherit',
         env: { ...process.env, CARGO_BUILD_JOBS: process.env.CARGO_BUILD_JOBS ?? '2', ...options.env },
     });
+    if (result.error !== undefined) {
+        throw new WaeBuildError(
+            BUILD_CODES.stepFailed,
+            `cargo ${args.join(' ')} could not start in ${options.root}: ${result.error.message}`,
+        );
+    }
+    if (result.signal !== null) {
+        throw new WaeBuildError(
+            BUILD_CODES.stepFailed,
+            `cargo ${args.join(' ')} was killed by ${result.signal} in ${options.root}`,
+        );
+    }
     if (result.status !== 0) {
         throw new WaeBuildError(
             BUILD_CODES.stepFailed,
-            `cargo ${args.join(' ')} failed in ${options.root} (exit ${result.status ?? 'null'})`,
+            `cargo ${args.join(' ')} failed in ${options.root} (exit ${String(result.status)})`,
         );
     }
 }
