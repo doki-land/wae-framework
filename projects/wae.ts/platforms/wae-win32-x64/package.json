@@ -1,6 +1,6 @@
 {
     "name": "@wae/wae-win32-x64",
-    "version": "0.0.3",
+    "version": "0.0.4",
     "description": "WAE native addon for Windows x64",
     "license": "Apache-2.0",
     "repository": {

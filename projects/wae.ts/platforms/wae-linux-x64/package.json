@@ -1,6 +1,6 @@
 {
     "name": "@wae/wae-linux-x64",
-    "version": "0.0.3",
+    "version": "0.0.4",
     "description": "WAE native addon for Linux x64",
     "license": "Apache-2.0",
     "repository": {
