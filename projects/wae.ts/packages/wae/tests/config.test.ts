@@ -137,6 +137,42 @@ test('a narrowed `build.steps` list must include the steps it depends on', () =>
     assert.deepEqual(config.build?.steps?.map((step) => step.name), ['native', 'ts']);
 });
 
+test('staging targets must stay inside the project root', async () => {
+    const cases: Array<[string, RegExp]> = [
+        ['.', /not the project root/],
+        ['..', /stay inside the project root/],
+        ['../outside', /stay inside the project root/],
+        ['/outside', /not an absolute path/],
+        ['C:/outside', /not an absolute path/],
+    ];
+    for (const [to, pattern] of cases) {
+        assert.throws(
+            () => parseConfigSource(`export default defineConfig({ build: { stage: [{ from: 'dist', to: '${to}' }] } });`),
+            (error: unknown) => error instanceof WaeConfigError && error.code === 'config_invalid' && pattern.test(error.message),
+            to,
+        );
+    }
+    const accepted = parseConfigSource(`export default defineConfig({ build: { stage: [{ from: 'dist', to: 'dist/gui', clean: true }] } });`);
+    assert.equal(accepted.build?.stage?.[0]?.to, 'dist/gui');
+
+    // A real build must refuse the config before `clean` can touch the project root.
+    const root = tempDir();
+    try {
+        writeFile(path.join(root, 'marker.txt'), 'keep');
+        writeFile(
+            path.join(root, WAE_CONFIG_FILE),
+            `export default defineConfig({ build: { stage: [{ from: 'marker.txt', to: '.', clean: true }] } });`,
+        );
+        await assert.rejects(
+            () => runBuild({ startDir: root, log: () => {} }),
+            (error: unknown) => error instanceof WaeConfigError && /not the project root/.test(error.message),
+        );
+        assert.equal(fs.existsSync(path.join(root, 'marker.txt')), true);
+    } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+    }
+});
+
 test('native targets must line up with the declared platform packages', () => {
     const source = `
 export default defineConfig({

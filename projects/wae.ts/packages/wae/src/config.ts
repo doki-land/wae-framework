@@ -719,7 +719,7 @@ function validateBuild(value: unknown, where: string): WaeBuildConfig {
             assertKeys(stage, ['from', 'to', 'clean', 'ignore'], `${where}.stage[${index}]`);
             build.stage.push({
                 from: expectString(stage.from, `${where}.stage[${index}].from`),
-                to: expectString(stage.to, `${where}.stage[${index}].to`),
+                to: expectStagingTarget(stage.to, `${where}.stage[${index}].to`),
                 ...(stage.clean === undefined ? {} : { clean: expectBoolean(stage.clean, `${where}.stage[${index}].clean`) }),
                 ...(stage.ignore === undefined
                     ? {}
@@ -858,6 +858,27 @@ function expectStringArray(value: unknown, where: string): string[] {
         if (typeof item !== 'string' || !item.trim()) invalid(`${where}[${index}]`, 'expected a non-empty string');
     }
     return value as string[];
+}
+
+/**
+ * Staging writes into a target, and `clean` deletes that target recursively.
+ *
+ * Reject absolute targets and targets that escape the project root, including the root itself,
+ * so a config can never turn `build.stage[].clean` into a delete of the whole project.
+ */
+function expectStagingTarget(value: unknown, where: string): string {
+    const raw = expectString(value, where);
+    if (path.isAbsolute(raw) || /^[A-Za-z]:/.test(raw) || raw.startsWith('\\')) {
+        invalid(where, 'expected a project-relative staging target, not an absolute path');
+    }
+    const normalized = path.posix.normalize(raw.replaceAll('\\', '/'));
+    if (normalized === '..' || normalized.startsWith('../')) {
+        invalid(where, 'staging target must stay inside the project root');
+    }
+    if (normalized === '.') {
+        invalid(where, 'staging target must name a subdirectory, not the project root');
+    }
+    return raw;
 }
 
 function expectEnum<T extends string>(value: unknown, allowed: readonly T[], where: string): T {
