@@ -40,6 +40,7 @@ export const BUILD_CODES = {
     artifactMissing: 'build_artifact_missing',
     platformPackageInvalid: 'build_platform_package_invalid',
     releaseSetMismatch: 'build_release_set_mismatch',
+    ciMismatch: 'build_ci_mismatch',
     skillsInvalid: 'build_skills_invalid',
     stepFailed: 'build_step_failed',
 } as const;

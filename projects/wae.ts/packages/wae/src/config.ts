@@ -102,17 +102,19 @@ export type WaeReleaseConfig = {
 };
 
 export type WaeCiConfig = {
-    repo?: string;
-    workflows?: string[];
+    /** GitHub repository as `owner/name`, matched against the project manifest. */
+    repo: string;
+    /** Workflow files under `.github/workflows` that the CI contract covers. */
+    workflows: string[];
+    /** Job ids that must appear in at least one declared workflow. */
     requiredJobs?: string[];
-    waitTimeoutMs?: number;
-    intervalMs?: number;
+    /** When true, a declared workflow must actually reference `GITHUB_SHA`. */
     shaBinding?: boolean;
 };
 
 export type WaeInstallConfig = {
+    /** Default for the app CLI: create a desktop shortcut unless `--no-shortcut`. */
     shortcutDefault: boolean;
-    configLocation: 'per-user';
 };
 
 export type WaeActorSource = 'flag' | 'env' | 'session' | 'host';
@@ -801,24 +803,24 @@ function validateRelease(value: unknown, where: string): WaeReleaseConfig {
 
 function validateCi(value: unknown, where: string): WaeCiConfig {
     const obj = expectObject(value, where);
-    assertKeys(obj, ['repo', 'workflows', 'requiredJobs', 'waitTimeoutMs', 'intervalMs', 'shaBinding'], where);
-    const ci: WaeCiConfig = {};
-    if (obj.repo !== undefined) ci.repo = expectString(obj.repo, `${where}.repo`);
-    if (obj.workflows !== undefined) ci.workflows = expectStringArray(obj.workflows, `${where}.workflows`);
+    assertKeys(obj, ['repo', 'workflows', 'requiredJobs', 'shaBinding'], where);
+    const repo = expectString(obj.repo, `${where}.repo`);
+    if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) {
+        invalid(`${where}.repo`, 'expected `owner/name`');
+    }
+    const ci: WaeCiConfig = {
+        repo,
+        workflows: expectStringArray(obj.workflows, `${where}.workflows`),
+    };
     if (obj.requiredJobs !== undefined) ci.requiredJobs = expectStringArray(obj.requiredJobs, `${where}.requiredJobs`);
-    if (obj.waitTimeoutMs !== undefined) ci.waitTimeoutMs = expectNumber(obj.waitTimeoutMs, `${where}.waitTimeoutMs`);
-    if (obj.intervalMs !== undefined) ci.intervalMs = expectNumber(obj.intervalMs, `${where}.intervalMs`);
     if (obj.shaBinding !== undefined) ci.shaBinding = expectBoolean(obj.shaBinding, `${where}.shaBinding`);
     return ci;
 }
 
 function validateInstall(value: unknown, where: string): WaeInstallConfig {
     const obj = expectObject(value, where);
-    assertKeys(obj, ['shortcutDefault', 'configLocation'], where);
-    return {
-        shortcutDefault: expectBoolean(obj.shortcutDefault, `${where}.shortcutDefault`),
-        configLocation: expectEnum(obj.configLocation, ['per-user'] as const, `${where}.configLocation`),
-    };
+    assertKeys(obj, ['shortcutDefault'], where);
+    return { shortcutDefault: expectBoolean(obj.shortcutDefault, `${where}.shortcutDefault`) };
 }
 
 function validateAudit(value: unknown, where: string): WaeAuditConfig {

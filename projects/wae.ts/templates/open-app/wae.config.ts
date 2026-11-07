@@ -58,14 +58,21 @@ export default defineConfig({
             },
         ],
     },
-    // `release` stays unset until the platform package drops `private` and the
-    // app leaves `0.0.0`. Then list the exact published set here, platform
-    // packages first, so `wae build` can compare it with every manifest.
+    // `release` is intentionally unset: the platform package is still
+    // `private`, so there is no publishable set to compare yet.
+    // `wae build` validates this CI contract: the declared workflow files must
+    // exist, `requiredJobs` must be real job ids, and `repo` must match
+    // `Cargo.toml#repository`. Claim `shaBinding` only when a workflow actually
+    // binds `GITHUB_SHA` to the release tag.
     ci: {
         repo: 'your-org/{{name}}',
         workflows: ['check-rust.yml', 'check-typescript.yml'],
-        shaBinding: true,
+        shaBinding: false,
     },
-    install: { shortcutDefault: true, configLocation: 'per-user' },
+    // `wae build` writes these into the app CLI as `dist/wae-runtime.json`.
+    // `shortcutDefault` is the install command's default (a desktop shortcut is
+    // created unless `--no-shortcut` is passed), and every capability call
+    // resolves the audit actor from the channels declared here.
+    install: { shortcutDefault: true },
     audit: { actor: { kind: 'flag', id: 'flag', source: 'env' } },
 });

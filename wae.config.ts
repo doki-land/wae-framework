@@ -82,12 +82,16 @@ export default defineConfig({
             { name: '@wae/wae', dir: 'projects/wae.ts/packages/wae' },
         ],
     },
+    // `check-rust.yml` defines the `test` and `native` jobs. No workflow binds
+    // `GITHUB_SHA` to the release tag yet, so `shaBinding` must stay false until
+    // the publish path actually does that.
     ci: {
         repo: 'doki-land/wae-framework',
         workflows: ['check-rust.yml', 'publish-npm.yml'],
         requiredJobs: ['test', 'native'],
-        shaBinding: true,
+        shaBinding: false,
     },
-    install: { shortcutDefault: false, configLocation: 'per-user' },
+    // `wae build` writes these into the CLI package as `dist/wae-runtime.json`.
+    install: { shortcutDefault: false },
     audit: { actor: { kind: 'flag', id: 'flag', source: 'env' } },
 });

@@ -353,12 +353,179 @@ function runStagingStep(context: BuildContext, selected: WaeNativeTarget | undef
         }
     }
 
+    const ci = validateCiContract(context);
+    const runtime = writeRuntimeContract(context);
+
     const detail = [
         `${copies} stage cop(ies)`,
         `${platformPackages(context).length} platform package(s)`,
         context.config.release === undefined ? 'release not configured' : `release set ${context.config.release.packages.length} package(s)`,
+        ci ?? 'ci not configured',
+        runtime === undefined ? 'runtime contract not configured' : `runtime contract ${path.relative(context.root, runtime)}`,
     ].join(', ');
     return { step: { name: 'staging', status: 'ok', detail: `validated ${detail}` }, selected };
+}
+
+/**
+ * Validate the declared CI contract against the files that actually exist.
+ *
+ * `ci.repo` must match the project manifest, every `ci.workflows` entry must be a
+ * real workflow file, `ci.requiredJobs` must be job ids in one of those files,
+ * and `shaBinding` may only be claimed when a workflow binds `GITHUB_SHA`.
+ */
+function validateCiContract(context: BuildContext): string | undefined {
+    const ci = context.config.ci;
+    if (ci === undefined) return undefined;
+
+    const workflowDir = path.join(context.root, '.github', 'workflows');
+    const files = ci.workflows.map((name) => path.join(workflowDir, name));
+    const missing = files.filter((file) => !fs.existsSync(file));
+    if (missing.length) {
+        throw new WaeBuildError(
+            BUILD_CODES.ciMismatch,
+            `ci contract names workflow(s) that do not exist: ${missing.join(', ')}`,
+            { attempts: missing },
+        );
+    }
+
+    const texts = files.map((file) => fs.readFileSync(file, 'utf8'));
+    const jobs = new Set<string>();
+    for (const text of texts) for (const id of workflowJobIds(text)) jobs.add(id);
+    const missingJobs = (ci.requiredJobs ?? []).filter((job) => !jobs.has(job));
+    if (missingJobs.length) {
+        throw new WaeBuildError(
+            BUILD_CODES.ciMismatch,
+            `ci contract requires job(s) no declared workflow defines: ${missingJobs.join(', ')}`,
+            { attempts: [...files, ...missingJobs] },
+        );
+    }
+
+    if (ci.shaBinding === true && !texts.some((text) => text.includes('GITHUB_SHA'))) {
+        throw new WaeBuildError(
+            BUILD_CODES.ciMismatch,
+            '`ci.shaBinding` is on but no declared workflow references `GITHUB_SHA`',
+            { attempts: files },
+        );
+    }
+
+    const repository = projectRepository(context.root);
+    if (repository === undefined) {
+        throw new WaeBuildError(
+            BUILD_CODES.ciMismatch,
+            `\`ci.repo\` names \`${ci.repo}\` but the project declares no repository`,
+            { attempts: [path.join(context.root, 'package.json'), path.join(context.root, 'Cargo.toml')] },
+        );
+    }
+    if (!repository.toLowerCase().includes(`github.com/${ci.repo}`.toLowerCase())) {
+        throw new WaeBuildError(
+            BUILD_CODES.ciMismatch,
+            `\`ci.repo\` names \`${ci.repo}\` but the project declares \`${repository}\``,
+            { attempts: [repository] },
+        );
+    }
+
+    const covered = [
+        `${ci.workflows.length} workflow(s)`,
+        `${ci.requiredJobs?.length ?? 0} required job(s)`,
+        ci.shaBinding === true ? 'sha binding' : 'no sha binding',
+    ];
+    return `ci ${ci.repo} (${covered.join(', ')})`;
+}
+
+/** Job ids declared at the first level of a workflow `jobs:` block. */
+function workflowJobIds(text: string): string[] {
+    const ids: string[] = [];
+    let inJobs = false;
+    for (const line of text.split(/\r?\n/)) {
+        if (/^jobs:\s*$/.test(line)) {
+            inJobs = true;
+            continue;
+        }
+        if (!inJobs) continue;
+        if (/^[^\s#]/.test(line)) {
+            inJobs = false;
+            continue;
+        }
+        const match = /^ {2}([A-Za-z0-9_-]+):\s*$/.exec(line);
+        if (match?.[1] !== undefined) ids.push(match[1]);
+    }
+    return ids;
+}
+
+/** Repository URL from the root `package.json` or the Cargo workspace manifest. */
+function projectRepository(root: string): string | undefined {
+    const manifestPath = path.join(root, 'package.json');
+    if (fs.existsSync(manifestPath)) {
+        try {
+            const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as Record<string, unknown>;
+            const repository = manifest.repository;
+            if (typeof repository === 'string' && repository.trim()) return repository;
+            if (typeof repository === 'object' && repository !== null && !Array.isArray(repository)) {
+                const url = (repository as Record<string, unknown>).url;
+                if (typeof url === 'string' && url.trim()) return url;
+            }
+        } catch {
+            // A malformed root manifest is not the CI contract's concern here.
+        }
+    }
+    const cargoPath = path.join(root, 'Cargo.toml');
+    if (fs.existsSync(cargoPath)) {
+        const match = /^repository\s*=\s*"([^"]+)"/m.exec(fs.readFileSync(cargoPath, 'utf8'));
+        if (match?.[1] !== undefined) return match[1];
+    }
+    return undefined;
+}
+
+/**
+ * Write the build-time half of `install` / `audit` into the app CLI package.
+ *
+ * The CLI reads `dist/wae-runtime.json` next to its own entry, so a scaffolded
+ * app behaves as configured without importing `wae.config.ts` at runtime.
+ */
+function writeRuntimeContract(context: BuildContext): string | undefined {
+    const install = context.config.install;
+    const audit = context.config.audit;
+    if (install === undefined && audit === undefined) return undefined;
+
+    const packageDir = appCliPackageDir(context);
+    if (packageDir === undefined) {
+        throw new WaeBuildError(
+            BUILD_CODES.targetMissing,
+            '`install` or `audit` needs an app CLI package: declare `skills.packages[].cliEntry` or a `build.ts` package with a `bin` entry',
+            { attempts: ['skills.packages[].cliEntry', 'build.ts.packages'] },
+        );
+    }
+
+    const outDir = path.join(packageDir, 'dist');
+    fs.mkdirSync(outDir, { recursive: true });
+    const file = path.join(outDir, 'wae-runtime.json');
+    const contract = {
+        schema: 'wae.runtime/v0',
+        ...(install === undefined ? {} : { install: { shortcutDefault: install.shortcutDefault } }),
+        ...(audit === undefined ? {} : { audit: { actor: audit.actor } }),
+    };
+    fs.writeFileSync(file, `${JSON.stringify(contract, null, 2)}\n`);
+    return file;
+}
+
+/** Locate the package that ships the app CLI entry. */
+function appCliPackageDir(context: BuildContext): string | undefined {
+    for (const pkg of context.config.skills?.packages ?? []) {
+        if (pkg.cliEntry === undefined) continue;
+        const dir = path.dirname(path.dirname(path.resolve(context.root, pkg.cliEntry)));
+        if (fs.existsSync(path.join(dir, 'package.json'))) return dir;
+    }
+    for (const name of context.config.build?.ts?.packages ?? []) {
+        const dir = findPackageDir(context.root, name);
+        if (dir === undefined) continue;
+        try {
+            const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')) as Record<string, unknown>;
+            if (manifest.bin !== undefined) return dir;
+        } catch {
+            continue;
+        }
+    }
+    return undefined;
 }
 
 function platformPackages(context: BuildContext): WaePlatformPackage[] {

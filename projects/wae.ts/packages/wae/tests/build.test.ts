@@ -231,6 +231,125 @@ test('staging refuses a target that resolves outside the project root through a 
     }
 });
 
+/** Project with only the staging step: a CLI package plus a test workflow. */
+function configProject(extra: string, workflow?: string): string {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wae-contract-'));
+    fs.writeFileSync(path.join(root, WAE_CONFIG_FILE), `
+export default defineConfig({
+    build: { steps: [{ name: 'staging' }], ts: { packages: ['@scope/app'] } },
+    ${extra}
+});
+`);
+    writeJson(path.join(root, 'package.json'), {
+        name: 'workspace',
+        private: true,
+        repository: 'https://github.com/scope/tool',
+    });
+    writeJson(path.join(root, 'packages', 'app', 'package.json'), {
+        name: '@scope/app',
+        version: '0.0.1',
+        bin: { app: './dist/cli.js' },
+    });
+    fs.mkdirSync(path.join(root, 'packages', 'app', 'dist'), { recursive: true });
+    if (workflow !== undefined) {
+        fs.mkdirSync(path.join(root, '.github', 'workflows'), { recursive: true });
+        fs.writeFileSync(path.join(root, '.github', 'workflows', 'check.yml'), workflow);
+    }
+    return root;
+}
+
+const WORKFLOW = `name: check
+on:
+  push:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "$GITHUB_SHA"
+`;
+
+test('`ci` is read by the build and must match the real workflow files', async () => {
+    const root = configProject(
+        `ci: { repo: 'scope/tool', workflows: ['check.yml'], requiredJobs: ['test'], shaBinding: true },`,
+        WORKFLOW,
+    );
+    try {
+        const report = await runBuild({ startDir: root, log: () => {} });
+        const staging = report.steps.find((step) => step.name === 'staging');
+        assert.match(staging?.detail ?? '', /ci scope\/tool/);
+        assert.match(staging?.detail ?? '', /1 workflow\(s\)/);
+    } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test('`ci` claims fail with build_ci_mismatch when the workflow does not match', async () => {
+    const cases: Array<[string, string, RegExp]> = [
+        [
+            `ci: { repo: 'scope/tool', workflows: ['missing.yml'] },`,
+            WORKFLOW,
+            /do not exist/,
+        ],
+        [
+            `ci: { repo: 'scope/tool', workflows: ['check.yml'], requiredJobs: ['native'] },`,
+            WORKFLOW,
+            /no declared workflow defines/,
+        ],
+        [
+            `ci: { repo: 'scope/tool', workflows: ['check.yml'], shaBinding: true },`,
+            WORKFLOW.replace('echo "$GITHUB_SHA"', 'echo ok'),
+            /references `GITHUB_SHA`/,
+        ],
+        [
+            `ci: { repo: 'other/tool', workflows: ['check.yml'] },`,
+            WORKFLOW,
+            /project declares/,
+        ],
+    ];
+    for (const [extra, workflow, pattern] of cases) {
+        const root = configProject(extra, workflow);
+        try {
+            await assert.rejects(
+                () => runBuild({ startDir: root, log: () => {} }),
+                (error: unknown) => error instanceof WaeBuildError
+                    && error.code === BUILD_CODES.ciMismatch
+                    && pattern.test(error.message),
+            );
+        } finally {
+            fs.rmSync(root, { recursive: true, force: true });
+        }
+    }
+});
+
+test('`install` is written into the app CLI runtime contract', async () => {
+    for (const shortcutDefault of [false, true]) {
+        const root = configProject(`install: { shortcutDefault: ${shortcutDefault} },`);
+        try {
+            await runBuild({ startDir: root, log: () => {} });
+            const contract = JSON.parse(
+                fs.readFileSync(path.join(root, 'packages', 'app', 'dist', 'wae-runtime.json'), 'utf8'),
+            ) as { install?: { shortcutDefault?: boolean } };
+            assert.equal(contract.install?.shortcutDefault, shortcutDefault);
+        } finally {
+            fs.rmSync(root, { recursive: true, force: true });
+        }
+    }
+});
+
+test('`audit` actor mapping is written into the app CLI runtime contract', async () => {
+    const mapping = { kind: 'env', id: 'flag', source: 'host' };
+    const root = configProject(`audit: { actor: ${JSON.stringify(mapping)} },`);
+    try {
+        await runBuild({ startDir: root, log: () => {} });
+        const contract = JSON.parse(
+            fs.readFileSync(path.join(root, 'packages', 'app', 'dist', 'wae-runtime.json'), 'utf8'),
+        ) as { audit?: { actor?: Record<string, string> } };
+        assert.deepEqual(contract.audit?.actor, mapping);
+    } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+    }
+});
+
 test('staging copies the declared tree and verifies outputs', async () => {
     const root = hostProject(`${baseConfig()}    build: {
         stage: [{ from: 'apps/ui/dist', to: 'apps/tool/dist/ui', clean: true, ignore: ['notes.txt'] }],

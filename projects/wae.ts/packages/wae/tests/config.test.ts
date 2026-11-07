@@ -72,7 +72,7 @@ export default defineConfig({
         ],
     },
     ci: { repo: 'scope/tool', workflows: ['check-rust.yml'], shaBinding: true },
-    install: { shortcutDefault: true, configLocation: 'per-user' },
+    install: { shortcutDefault: true },
     audit: { actor: { kind: 'flag', id: 'flag', source: 'env' } },
 });
 `;
@@ -87,7 +87,7 @@ test('static config parser accepts every documented key', () => {
     assert.equal(config.skills?.packages[0]?.dir, 'packages/tool-skills/skills');
     assert.equal(config.release?.packages.length, 3);
     assert.equal(config.ci?.shaBinding, true);
-    assert.equal(config.install?.configLocation, 'per-user');
+    assert.equal(config.install?.shortcutDefault, true);
     assert.equal(config.audit?.actor.kind, 'flag');
 });
 
@@ -114,8 +114,30 @@ test('static parser accepts plain export default and satisfies', () => {
     assert.deepEqual(parseStaticObject(`export default { publish: { packages: ["a"] } };`).publish, {
         packages: ['a'],
     });
-    const config = parseConfigSource(`export default { install: { shortcutDefault: false, configLocation: 'per-user' } } satisfies WaeConfig;`);
+    const config = parseConfigSource(`export default { install: { shortcutDefault: false } } satisfies WaeConfig;`);
     assert.equal(config.install?.shortcutDefault, false);
+});
+
+test('`ci`, `install` and `audit` reject invalid values as config_invalid', () => {
+    const cases: Array<[string, RegExp]> = [
+        [`ci: { workflows: ['check.yml'] }`, /ci\.repo: expected a non-empty string/],
+        [`ci: { repo: 'no-slash', workflows: ['check.yml'] }`, /ci\.repo: expected `owner\/name`/],
+        [`ci: { repo: 'scope/tool', workflows: [] }`, /ci\.workflows: expected a non-empty array/],
+        [`ci: { repo: 'scope/tool', workflows: ['check.yml'], shaBinding: 'yes' }`, /ci\.shaBinding: expected a boolean/],
+        [`ci: { repo: 'scope/tool', workflows: ['check.yml'], waitTimeoutMs: 1000 }`, /unknown key `waitTimeoutMs`/],
+        [`install: { shortcutDefault: 'yes' }`, /install\.shortcutDefault: expected a boolean/],
+        [`install: { shortcutDefault: true, configLocation: 'per-user' }`, /unknown key `configLocation`/],
+        [`audit: { actor: { kind: 'network', id: 'flag', source: 'env' } }`, /audit\.actor\.kind: expected one of/],
+    ];
+    for (const [body, pattern] of cases) {
+        assert.throws(
+            () => parseConfigSource(`export default defineConfig({ ${body} });`),
+            (error: unknown) => error instanceof WaeConfigError
+                && error.code === 'config_invalid'
+                && pattern.test(error.message),
+            body,
+        );
+    }
 });
 
 test('unknown keys fail as config_invalid', () => {

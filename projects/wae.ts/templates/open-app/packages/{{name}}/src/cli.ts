@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { createCli, type CommandContext, type ParsedOptions } from '@wae/commander';
 
 import { AppError, EXIT, fromNativeError } from './errors.js';
+import { loadRuntimeContract, type ActorChannel } from './runtime.js';
 import {
     auditQuery,
     capabilities,
@@ -65,16 +66,44 @@ function integerOption(options: ParsedOptions, key: string): number | undefined 
     return value;
 }
 
+const runtime = loadRuntimeContract();
+
+/**
+ * Resolve one actor field from the channel declared in `audit.actor`.
+ *
+ * `flag` and `env` are the CLI's own inputs, `host` is the CLI default, and
+ * `session` only exists in the GUI host, so the CLI falls back to `host`.
+ */
+function actorValue(
+    channel: ActorChannel | undefined,
+    fromFlag: string | undefined,
+    envKey: string,
+    hostDefault: string,
+): string {
+    switch (channel) {
+        case 'env':
+            return process.env[envKey]?.trim() || hostDefault;
+        case 'host':
+            return hostDefault;
+        case 'session':
+            return hostDefault;
+        case 'flag':
+        default:
+            return fromFlag ?? hostDefault;
+    }
+}
+
 /** Configure the audit actor before any capability call. */
 function bootstrap(options: ParsedOptions): void {
-    const kind = stringOption(options, 'actor-kind');
-    if (kind !== undefined && kind !== 'user' && kind !== 'agent') {
+    const mapping = runtime.audit?.actor;
+    const kind = actorValue(mapping?.kind, stringOption(options, 'actor-kind'), 'WAE_ACTOR_KIND', 'user');
+    if (kind !== 'user' && kind !== 'agent') {
         throw new AppError({ code: 'invalid_argument', message: '`--actor-kind` must be `user` or `agent`' });
     }
     configureAudit({
-        actorKind: kind === 'agent' ? 'agent' : 'user',
-        actorId: stringOption(options, 'actor') ?? 'unknown',
-        actorSource: stringOption(options, 'actor-source') ?? 'cli',
+        actorKind: kind,
+        actorId: actorValue(mapping?.id, stringOption(options, 'actor'), 'WAE_ACTOR_ID', 'unknown'),
+        actorSource: actorValue(mapping?.source, stringOption(options, 'actor-source'), 'WAE_ACTOR_SOURCE', 'cli'),
     });
 }
 
@@ -190,7 +219,7 @@ cli.command('install', 'cli.cmd.install')
     .option('--reset-config', 'cli.opt.reset-config')
     .actionCtx(async (options, _args, ctx) => {
         const request = {
-            noShortcut: flag(options, 'no-shortcut'),
+            noShortcut: flag(options, 'no-shortcut') || runtime.install?.shortcutDefault === false,
             resetConfig: flag(options, 'reset-config'),
         };
         try {

@@ -45,6 +45,6 @@ export default defineConfig({
         ],
     },
     ci: { repo: 'scope/tool', workflows: ['check-rust.yml'], shaBinding: true },
-    install: { shortcutDefault: true, configLocation: 'per-user' },
+    install: { shortcutDefault: true },
     audit: { actor: { kind: 'flag', id: 'flag', source: 'env' } },
 });
