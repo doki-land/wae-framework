@@ -19,6 +19,7 @@ import {
 } from './config.js';
 import { defineConfig } from './config.js';
 import { runBuild, readWorkspaceVersion } from './build.js';
+import { entryRelation, unresolvedEntryMessage } from './entry.js';
 
 export { readWorkspaceVersion };
 import { copyDir, removePath, rewritePlaceholders, SCAFFOLD_NAME_PATTERN } from './fs-utils.js';
@@ -633,17 +634,12 @@ async function main(): Promise<void> {
     process.exitCode = await buildCli().parse(process.argv);
 }
 
-/** True when `invoked` resolves to this module, following package-manager symlinks. */
-export function isEntryPoint(invoked: string): boolean {
-    try {
-        return fs.realpathSync(invoked) === fs.realpathSync(fileURLToPath(import.meta.url));
-    }
-    catch {
-        return false;
-    }
-}
-
 const invoked = process.argv[1] ? path.resolve(process.argv[1]) : '';
-if (invoked && isEntryPoint(invoked)) {
+const relation = entryRelation(import.meta.url, invoked);
+if (relation === 'main') {
     void main();
+}
+else if (relation === 'unresolved') {
+    console.error(`[wae] ${unresolvedEntryMessage(import.meta.url, invoked)}`);
+    process.exitCode = 1;
 }

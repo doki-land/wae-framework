@@ -119,6 +119,68 @@ test('templateRoot falls back to the templates vendored into the tarball', () =>
     }
 });
 
+test('generated open-tools CLI runs only as the entry point', async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wae-new-entry-'));
+    const name = 'demo-tool';
+    const marker = path.join(tmp, 'node_modules', '@wae', 'commander', 'parsed-marker.txt');
+    try {
+        assert.equal(await buildCli().parse(['new', name, '--out', tmp]), 0);
+        const cliPath = path.join(tmp, name, 'src', 'cli.ts');
+        assert.ok(fs.existsSync(cliPath));
+
+        // Stub the framework so the scaffold can run without an install step.
+        const commanderDir = path.join(tmp, 'node_modules', '@wae', 'commander');
+        fs.mkdirSync(commanderDir, { recursive: true });
+        fs.writeFileSync(
+            path.join(commanderDir, 'package.json'),
+            JSON.stringify({ name: '@wae/commander', version: '0.0.0', type: 'module', main: 'index.js' }),
+        );
+        fs.writeFileSync(
+            path.join(commanderDir, 'index.js'),
+            [
+                "import fs from 'node:fs';",
+                'export function createCli() {',
+                '    const cli = {',
+                '        locales() { return cli; },',
+                '        intro() { return cli; },',
+                '        command() { return cli; },',
+                '        option() { return cli; },',
+                '        actionCtx() { return cli; },',
+                '        async parse() {',
+                "            fs.writeFileSync(new URL('./parsed-marker.txt', import.meta.url), 'parsed');",
+                '            return 0;',
+                '        },',
+                '    };',
+                '    return cli;',
+                '}',
+                '',
+            ].join('\n'),
+        );
+
+        const hookUrl = pathToFileURL(path.join(PACKAGE_ROOT, '..', 'wae-commander', 'scripts', 'resolve-ts-from-js.mjs')).href;
+        const main = spawnSync(
+            process.execPath,
+            ['--import', hookUrl, '--experimental-strip-types', cliPath, 'hello'],
+            { encoding: 'utf8' },
+        );
+        assert.equal(main.status, 0, main.stderr);
+        assert.ok(fs.existsSync(marker), 'the entry point must run when it is the main script');
+        fs.rmSync(marker);
+
+        const consumer = path.join(tmp, 'consumer.mjs');
+        fs.writeFileSync(consumer, `await import(${JSON.stringify(pathToFileURL(cliPath).href)});\n`);
+        const imported = spawnSync(
+            process.execPath,
+            ['--import', hookUrl, '--experimental-strip-types', consumer],
+            { encoding: 'utf8' },
+        );
+        assert.equal(imported.status, 0, imported.stderr);
+        assert.equal(fs.existsSync(marker), false, 'importing the CLI must not run it');
+    } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+    }
+});
+
 test('prepack vendors templates without touching the checkout copy', () => {
     const result = spawnSync(process.execPath, [VENDOR_SCRIPT], { encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
