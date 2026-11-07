@@ -42,9 +42,9 @@
         "@wae/commander": "workspace:*"
     },
     "optionalDependencies": {
-        "@wae/wae-darwin-arm64": "0.0.3",
-        "@wae/wae-linux-x64": "0.0.3",
-        "@wae/wae-win32-x64": "0.0.3"
+        "@wae/wae-darwin-arm64": "0.0.4",
+        "@wae/wae-linux-x64": "0.0.4",
+        "@wae/wae-win32-x64": "0.0.4"
     },
     "devDependencies": {
         "@types/node": "^22.15.0",
