@@ -32,13 +32,13 @@ importers:
         version: 5.9.3
     optionalDependencies:
       '@wae/wae-darwin-arm64':
-        specifier: 0.0.3
+        specifier: 0.0.4
         version: link:../../platforms/wae-darwin-arm64
       '@wae/wae-linux-x64':
-        specifier: 0.0.3
+        specifier: 0.0.4
         version: link:../../platforms/wae-linux-x64
       '@wae/wae-win32-x64':
-        specifier: 0.0.3
+        specifier: 0.0.4
         version: link:../../platforms/wae-win32-x64
 
   projects/wae.ts/packages/wae-commander:
