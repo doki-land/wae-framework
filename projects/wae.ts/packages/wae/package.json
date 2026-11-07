@@ -1,6 +1,6 @@
 {
     "name": "@wae/wae",
-    "version": "0.0.4",
+    "version": "0.0.5",
     "type": "module",
     "description": "WAE meta CLI: scaffold, build, stage native npm addons, and publish",
     "license": "Apache-2.0",
@@ -42,9 +42,9 @@
         "@wae/commander": "workspace:*"
     },
     "optionalDependencies": {
-        "@wae/wae-darwin-arm64": "0.0.4",
-        "@wae/wae-linux-x64": "0.0.4",
-        "@wae/wae-win32-x64": "0.0.4"
+        "@wae/wae-darwin-arm64": "0.0.5",
+        "@wae/wae-linux-x64": "0.0.5",
+        "@wae/wae-win32-x64": "0.0.5"
     },
     "devDependencies": {
         "@types/node": "^22.15.0",
