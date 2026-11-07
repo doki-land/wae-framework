@@ -8,7 +8,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import type { Cli, CliSpec } from '@wae/commander';
+import type { Cli, CliSpec, CliSpecCommand } from '@wae/commander';
 import { BUILD_CODES, WaeBuildError } from './build-error.js';
 import type { WaeSkillsPackage } from './config.js';
 
@@ -120,17 +120,18 @@ async function runAudit(context: AuditContext, appManifestPath?: string, skillsM
         const referencedMutating = new Set<string>();
         for (const invocation of invocations) {
             const tokens = invocation.split(/\s+/);
-            const command = tokens[1];
-            const allowed = command === undefined ? undefined : commands.get(command);
-            if (command === undefined || allowed === undefined) {
-                fail(`${dir}: unknown command \`${command ?? '<empty>'}\` in \`${invocation}\``);
+            const resolved = resolveCommand(commands, tokens.slice(1));
+            if ('unknown' in resolved) {
+                fail(`${dir}: unknown command \`${resolved.unknown || '<empty>'}\` in \`${invocation}\``);
             }
+            const consumed = resolved.consumed;
+            const command = resolved.node.names[0] ?? '';
             const flags: string[] = [];
-            for (const token of tokens.slice(2)) {
+            for (const token of tokens.slice(1 + consumed)) {
                 if (token.startsWith('<')) continue;
-                if (token.startsWith('--')) {
+                if (token.startsWith('-')) {
                     const flag = token.split('=')[0]!;
-                    if (!allowed.has(flag)) fail(`${dir}: flag \`${flag}\` is not defined for \`${command}\``);
+                    if (!resolved.node.options.has(flag)) fail(`${dir}: flag \`${flag}\` is not defined for \`${command}\``);
                     flags.push(flag);
                     continue;
                 }
@@ -152,10 +153,9 @@ async function runAudit(context: AuditContext, appManifestPath?: string, skillsM
         context.log.push(`ok ${dir}: ${invocations.length} invocation(s)`);
     }
 
-    context.log.push(`commands=${String(commands.size)}`);
-    context.log.push(
-        `skills=${String(skillDirs.length)} invocations=${String(checkedInvocations)} commands=${String(commands.size)}`,
-    );
+    const commandCount = countCommands(commands);
+    context.log.push(`commands=${String(commandCount)}`);
+    context.log.push(`skills=${String(skillDirs.length)} invocations=${String(checkedInvocations)} commands=${String(commandCount)}`);
 }
 
 function countInvocations(log: string[]): number {
@@ -167,10 +167,14 @@ function countInvocations(log: string[]): number {
     return total;
 }
 
-/** Command name → allowed flags, derived from the CLI module itself. */
-type CommandTree = Map<string, Set<string>>;
+/** Command tree derived from the CLI module itself, keeping aliases and children. */
+type CommandNode = {
+    names: string[];
+    options: Set<string>;
+    children: CommandNode[];
+};
 
-async function commandTree(context: AuditContext): Promise<CommandTree> {
+async function commandTree(context: AuditContext): Promise<CommandNode[]> {
     const cli = await loadCli(context);
     let spec: CliSpec;
     try {
@@ -179,14 +183,45 @@ async function commandTree(context: AuditContext): Promise<CommandTree> {
         const detail = error instanceof Error ? error.message : String(error);
         fail(`cannot describe \`${context.commandName}\`: ${detail}`);
     }
-    const commands: CommandTree = new Map();
-    for (const command of spec.commands) {
-        const name = command.names[0];
-        if (name === undefined) continue;
-        commands.set(name, new Set([...spec.options, '--help', ...command.options]));
+    const nodes = spec.commands.map((command) => toNode(command, spec.options));
+    if (nodes.length === 0) fail(`no commands defined by \`${context.commandName}\``);
+    return nodes;
+}
+
+function toNode(command: CliSpecCommand, rootOptions: string[]): CommandNode {
+    return {
+        names: [...command.names],
+        options: new Set([...rootOptions, '--help', ...command.options]),
+        children: command.children.map((child) => toNode(child, rootOptions)),
+    };
+}
+
+function countCommands(nodes: CommandNode[]): number {
+    return nodes.reduce((total, node) => total + 1 + countCommands(node.children), 0);
+}
+
+type ResolvedCommand = { node: CommandNode; consumed: number } | { unknown: string };
+
+/** Match the longest command path, so aliases and nested commands stay valid. */
+function resolveCommand(nodes: CommandNode[], tokens: string[]): ResolvedCommand {
+    let level = nodes;
+    let node: CommandNode | undefined;
+    let consumed = 0;
+    for (const token of tokens) {
+        if (token.startsWith('-')) break;
+        const match = level.find((candidate) => candidate.names.includes(token));
+        if (match === undefined) {
+            if (node === undefined) return { unknown: token };
+            if (level.length === 0) break;
+            return { unknown: tokens.slice(0, consumed + 1).join(' ') };
+        }
+        node = match;
+        consumed += 1;
+        level = match.children;
+        if (level.length === 0) break;
     }
-    if (commands.size === 0) fail(`no commands defined by \`${context.commandName}\``);
-    return commands;
+    if (node === undefined) return { unknown: tokens[0] ?? '' };
+    return { node, consumed };
 }
 
 /** Import the built CLI in-process so no subprocess receives capabilities. */
