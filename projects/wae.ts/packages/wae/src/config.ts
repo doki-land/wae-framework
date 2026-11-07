@@ -625,8 +625,7 @@ function validateNative(value: unknown, where: string): WaeNativeConfig {
         const key = `${platform}-${arch}`;
         if (seen.has(key)) invalid(`${where}.targets[${index}]`, `duplicate target \`${key}\``);
         seen.add(key);
-        const nodeFile = expectString(target.nodeFile, `${where}.targets[${index}].nodeFile`);
-        if (!nodeFile.endsWith('.node')) invalid(`${where}.targets[${index}].nodeFile`, 'must end with `.node`');
+        const nodeFile = expectNodeFileName(target.nodeFile, `${where}.targets[${index}].nodeFile`);
         config.targets.push({
             platform,
             arch,
@@ -649,8 +648,7 @@ function validatePackages(value: unknown, where: string): WaePlatformPackage[] {
         const name = expectString(pkg.name, `${where}[${index}].name`);
         if (names.has(name)) invalid(`${where}[${index}]`, `duplicate package \`${name}\``);
         names.add(name);
-        const main = expectString(pkg.main, `${where}[${index}].main`);
-        if (!main.endsWith('.node')) invalid(`${where}[${index}].main`, 'must end with `.node`');
+        const main = expectNodeFileName(pkg.main, `${where}[${index}].main`);
         packages.push({
             name,
             dir: expectString(pkg.dir, `${where}[${index}].dir`),
@@ -858,6 +856,20 @@ function expectStringArray(value: unknown, where: string): string[] {
         if (typeof item !== 'string' || !item.trim()) invalid(`${where}[${index}]`, 'expected a non-empty string');
     }
     return value as string[];
+}
+
+/**
+ * The platform package artifact is joined onto its directory, so the name must stay a single
+ * file name. Path separators or `..` would let a config write the staged `.node` outside the
+ * platform package it declares.
+ */
+function expectNodeFileName(value: unknown, where: string): string {
+    const raw = expectString(value, where);
+    if (!raw.endsWith('.node')) invalid(where, 'must end with `.node`');
+    if (raw.includes('/') || raw.includes('\\')) {
+        invalid(where, 'must be a bare `.node` file name without path separators');
+    }
+    return raw;
 }
 
 /**

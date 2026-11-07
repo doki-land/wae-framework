@@ -8,6 +8,7 @@ import {
     loadConfig,
     parseConfigSource,
     parseStaticObject,
+    validateConfig,
     WaeConfigError,
     WAE_CONFIG_FILE,
 } from '../src/config.ts';
@@ -187,6 +188,35 @@ export default defineConfig({
         () => parseConfigSource(source),
         (error: unknown) => error instanceof WaeConfigError && /does not match package os\/cpu/.test(error.message),
     );
+});
+
+test('artifact file names must stay inside the platform package', () => {
+    const withNodeFile = (nodeFile: string): unknown => ({
+        native: {
+            crate: 'tool-napi',
+            targets: [{
+                platform: 'win32',
+                arch: 'x64',
+                triple: 'x86_64-pc-windows-msvc',
+                package: '@scope/tool',
+                nodeFile,
+                dir: 'platforms/tool',
+            }],
+        },
+        packages: [{ name: '@scope/tool', dir: 'platforms/tool', os: ['win32'], cpu: ['x64'], main: nodeFile }],
+    });
+    const rejects = (raw: unknown, message: RegExp): void => {
+        assert.throws(
+            () => validateConfig(raw),
+            (error: unknown) => error instanceof WaeConfigError && error.code === 'config_invalid' && message.test(error.message),
+        );
+    };
+    for (const bad of ['../escape.node', 'nested/tool.node', 'nested\\tool.node']) {
+        rejects(withNodeFile(bad), /bare `.node` file name without path separators/);
+    }
+    rejects({ packages: [{ name: '@scope/tool', dir: 'platforms/tool', os: ['win32'], cpu: ['x64'], main: 'nested/tool.node' }] },
+        /bare `.node` file name without path separators/);
+    assert.doesNotThrow(() => validateConfig(withNodeFile('tool.win32-x64.node')));
 });
 
 test('config discovery walks up to the nearest wae.config.ts', () => {
