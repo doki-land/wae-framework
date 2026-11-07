@@ -21,8 +21,11 @@ export function hostKey(): string {
  */
 export function selectNativeTarget(native: WaeNativeConfig, override: string | undefined): WaeNativeTarget {
     const host = hostKey();
-    const envKey = native.targetEnv === undefined ? undefined : process.env[native.targetEnv];
-    const key = override ?? envKey?.trim() ?? host;
+    const envKey = native.targetEnv === undefined ? undefined : process.env[native.targetEnv]?.trim();
+    // A blank override or env value means "not set", otherwise a CI run that exports
+    // an empty target variable would fail instead of selecting the host.
+    const requested = override?.trim() ?? envKey;
+    const key = requested === undefined || requested === '' ? host : requested;
     const declared = native.targets.map((target) => `${target.platform}-${target.arch}`);
     const target = native.targets.find((entry) => `${entry.platform}-${entry.arch}` === key);
     if (!target) {

@@ -37,6 +37,35 @@ export default defineConfig({
     }
 });
 
+test('`native stage` ignores a blank target env var and selects the host', async () => {
+    const root = stageProject(`
+export default defineConfig({
+    native: {
+        crate: 'tool-napi',
+        targetEnv: 'WAE_STAGE_TARGET',
+        targets: [{
+            platform: '${process.platform}',
+            arch: '${process.arch}',
+            triple: 'host-triple',
+            package: '@scope/tool',
+            nodeFile: 'tool.node',
+            dir: 'platforms/tool',
+        }],
+    },
+});
+`);
+    const previous = process.env.WAE_STAGE_TARGET;
+    process.env.WAE_STAGE_TARGET = '   ';
+    try {
+        const code = await buildCli().parse(['native', 'stage', '--project', root, '--dry-run']);
+        assert.equal(code, 0);
+    } finally {
+        if (previous === undefined) delete process.env.WAE_STAGE_TARGET;
+        else process.env.WAE_STAGE_TARGET = previous;
+        fs.rmSync(root, { recursive: true, force: true });
+    }
+});
+
 test('`native stage` resolves a cross-compiled artifact under the triple directory', async () => {
     const cross = process.platform === 'linux' ? { platform: 'win32', arch: 'x64' } : { platform: 'linux', arch: 'x64' };
     const triple = 'cross-target-triple';
