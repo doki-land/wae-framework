@@ -10,8 +10,8 @@
 use std::{cell::RefCell, env, path::PathBuf};
 
 use {{nameSnake}}_core::{
-    AuditFields, CapabilityState, Error as CoreError, InspectionOptions, InstallOptions, UninstallOptions, apply_install, apply_uninstall,
-    capabilities as core_capabilities, capability_ids, inspect, plan_install, plan_uninstall,
+    AuditFields, Capabilities, Capability, CapabilityState, Error as CoreError, InspectionOptions, InstallOptions, UninstallOptions,
+    apply_install, apply_uninstall, capabilities as core_capabilities, capability_ids, inspect, plan_install, plan_uninstall,
 };
 use serde_json::{Value, json};
 use wae::{
@@ -43,7 +43,7 @@ impl IpcHandler for HostIpc {
         match kind {
             "close" => IpcOutcome::CloseWindow,
             "capabilities" => match audit::run(capability_ids::CAPABILITIES, Mode::Execute, Value::Null, || {
-                Ok((core_capabilities(), Summary::new(1, "capabilities")))
+                Ok((capability_report(), Summary::new(1, "capabilities")))
             }) {
                 Ok(report) => IpcOutcome::ReplyToPage(reply(json!({ "ok": true, "data": report }))),
                 Err(error) => IpcOutcome::ReplyToPage(reply(json!({ "ok": false, "error": error.payload() }))),
@@ -135,6 +135,20 @@ fn webview_error(error: WebViewError) -> CoreError {
         }
         _ => CoreError::message(error.to_string()),
     }
+}
+
+/// Capability report with the upstream facade row the domain cannot know about.
+///
+/// The `wae` facade only compiles on targets that carry a WebView backend, so `gui`
+/// exists wherever this crate builds. Missing runtime libraries still surface from
+/// `gui-open` as `dependency_blocked`, because the Linux backend resolves GTK at
+/// runtime rather than at build time.
+fn capability_report() -> Capabilities {
+    let mut report = core_capabilities();
+    report.items.push(Capability::available(capability_ids::GUI));
+    let note = "`gui` covers `openGui`, `pumpEvents`, `closeGui` and `isGuiOpen`, missing runtime dependencies surface as `dependency_blocked` from `gui-open`";
+    report.notes.push(note.to_string());
+    report
 }
 
 fn json_to_js(env: wae::Env, value: Value) -> Result<JsValue> {
@@ -282,8 +296,8 @@ fn version(ctx: CallContext) -> Result<JsValue> {
 #[function]
 fn capabilities(ctx: CallContext) -> Result<JsValue> {
     let result = audit::run(capability_ids::CAPABILITIES, Mode::DryRun, Value::Null, || {
-        let report = core_capabilities();
-        let summary = Summary::new(report.items.len() as u64, "domain capabilities");
+        let report = capability_report();
+        let summary = Summary::new(report.items.len() as u64, "capabilities");
         Ok((report, summary))
     });
     match result {
@@ -519,5 +533,17 @@ mod tests {
     fn other_host_failures_stay_plain_domain_errors() {
         let mapped = webview_error(WebViewError::host("create_window_failed", "create_window", "boom"));
         assert_eq!(mapped.code(), "message");
+    }
+
+    #[test]
+    fn capability_report_lists_gui_and_reasons_for_unavailable_rows() {
+        let report = capability_report();
+        assert!(report.is_available(capability_ids::GUI));
+        assert!(report.notes.iter().any(|note| note.contains("dependency_blocked")));
+        for id in [capability_ids::HOST_INSTALL, capability_ids::HOST_UNINSTALL] {
+            let item = report.get(id).unwrap_or_else(|| panic!("missing capability row: {id}"));
+            assert!(!item.is_available());
+            assert!(item.detail.as_deref().is_some_and(|detail| !detail.is_empty()));
+        }
     }
 }

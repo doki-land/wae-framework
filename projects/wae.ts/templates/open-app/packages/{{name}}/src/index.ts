@@ -18,7 +18,7 @@ export interface CapabilityItem {
     detail: string | null;
 }
 
-/** Domain capability report. */
+/** Capability report, including rows owned by the upstream facade. */
 export interface CapabilitiesReport {
     platform: string;
     arch: string;
@@ -143,7 +143,7 @@ export function version(): string {
     return invoke(() => loadNative().version());
 }
 
-/** Domain capability report. */
+/** Capability report, including rows owned by the upstream facade. */
 export function capabilities(): CapabilitiesReport {
     return invoke(() => loadNative().capabilities() as CapabilitiesReport);
 }

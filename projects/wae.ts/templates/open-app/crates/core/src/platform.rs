@@ -96,7 +96,8 @@ pub struct Capabilities {
     pub platform: String,
     /// Runtime CPU architecture.
     pub arch: String,
-    /// Domain capabilities only.
+    /// Domain capabilities. The N-API boundary overlays capabilities owned by
+    /// the upstream `wae` facade, such as `gui`.
     pub items: Vec<Capability>,
     /// Boundary notes that are not capabilities.
     pub notes: Vec<String>,
@@ -132,6 +133,6 @@ pub fn capabilities() -> Capabilities {
                 "uninstall planning is implemented, platform removal belongs to the application domain",
             ),
         ],
-        notes: vec!["gui availability is confirmed by the structured openGui error from the wae facade".to_string()],
+        notes: Vec::new(),
     }
 }
