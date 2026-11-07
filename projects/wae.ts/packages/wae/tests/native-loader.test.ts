@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import {
     NativeLoadError,
     NativeUnsupportedError,
+    capabilityMismatch,
     inspectNative,
     loadNative,
     nativeCandidates,
@@ -174,4 +175,22 @@ test('inspectNative keeps unsupported platforms structured', () => {
     assert.equal(error.code, 'unsupported_platform');
     assert.equal(error.platform, 'darwin-x64');
     assert.deepEqual(error.attempts, []);
+});
+
+test('capabilityMismatch accepts partial identity reports', () => {
+    const expected = { platform: 'windows', arch: 'x86_64', version: '0.0.3' };
+    assert.equal(capabilityMismatch({}, expected), undefined);
+    assert.equal(capabilityMismatch({ platform: 'windows' }, expected), undefined);
+    assert.equal(capabilityMismatch({ arch: 'x86_64' }, expected), undefined);
+    assert.equal(capabilityMismatch({ platform: 'windows', arch: 'x86_64', version: '0.0.3' }, expected), undefined);
+});
+
+test('capabilityMismatch rejects every present field that disagrees with the target', () => {
+    const expected = { platform: 'windows', arch: 'x86_64', version: '0.0.3' };
+    assert.match(String(capabilityMismatch({ platform: 'linux' }, expected)), /platform linux, expected windows/);
+    assert.match(String(capabilityMismatch({ arch: 'aarch64' }, expected)), /arch aarch64, expected x86_64/);
+    assert.match(
+        String(capabilityMismatch({ version: '0.0.2' }, expected)),
+        /version 0\.0\.2 does not match version\(\) 0\.0\.3/,
+    );
 });

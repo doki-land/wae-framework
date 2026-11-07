@@ -37,6 +37,7 @@ import {
     NativeUnsupportedError,
     NATIVE_ARCH_NAMES,
     NATIVE_PLATFORM_NAMES,
+    capabilityMismatch,
     type NativeAuditFilter,
 } from './native.js';
 import { localesRoot, SCAFFOLD_TEMPLATES, type ScaffoldTemplate, templateRoot } from './paths.js';
@@ -307,21 +308,9 @@ async function cmdNativeSmoke(options: ParsedOptions): Promise<number> {
         }
         const expectedPlatform = NATIVE_PLATFORM_NAMES[plan.target.platform];
         const expectedArch = NATIVE_ARCH_NAMES[plan.target.arch];
-        if (capabilities.platform !== undefined || capabilities.arch !== undefined) {
-            if (capabilities.platform !== expectedPlatform || capabilities.arch !== expectedArch) {
-                throw new WaeBuildError(
-                    BUILD_CODES.platformPackageInvalid,
-                    `capabilities report ${String(capabilities.platform)}/${String(capabilities.arch)}, expected ${expectedPlatform}/${expectedArch}`,
-                    { platform: key },
-                );
-            }
-        }
-        if (capabilities.version !== undefined && capabilities.version !== version) {
-            throw new WaeBuildError(
-                BUILD_CODES.platformPackageInvalid,
-                `capabilities version ${String(capabilities.version)} does not match version() ${version}`,
-                { platform: key },
-            );
+        const mismatch = capabilityMismatch(capabilities, { platform: expectedPlatform, arch: expectedArch, version });
+        if (mismatch !== undefined) {
+            throw new WaeBuildError(BUILD_CODES.platformPackageInvalid, mismatch, { platform: key });
         }
         if (capabilities.atomic !== undefined && (!Array.isArray(capabilities.atomic) || capabilities.atomic.length === 0)) {
             throw new WaeBuildError(BUILD_CODES.platformPackageInvalid, 'capabilities listed an empty atomic export set', {

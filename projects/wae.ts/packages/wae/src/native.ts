@@ -242,6 +242,29 @@ export function inspectNative(
     };
 }
 
+/**
+ * Compare optional addon identity fields against the expected target.
+ *
+ * Every identity field is optional at runtime, so an addon may report `platform` without
+ * `arch`, or report neither. Fields that are present must match the expected target,
+ * otherwise the platform package is invalid.
+ */
+export function capabilityMismatch(
+    capabilities: { platform?: unknown; arch?: unknown; version?: unknown },
+    expected: { platform: string; arch: string; version: string },
+): string | undefined {
+    if (capabilities.platform !== undefined && capabilities.platform !== expected.platform) {
+        return `capabilities report platform ${capabilities.platform}, expected ${expected.platform}`;
+    }
+    if (capabilities.arch !== undefined && capabilities.arch !== expected.arch) {
+        return `capabilities report arch ${capabilities.arch}, expected ${expected.arch}`;
+    }
+    if (capabilities.version !== undefined && capabilities.version !== expected.version) {
+        return `capabilities version ${capabilities.version} does not match version() ${expected.version}`;
+    }
+    return undefined;
+}
+
 function platformKey(options: NativeResolveOptions): string {
     return `${options.platform ?? process.platform}-${options.arch ?? process.arch}`;
 }
