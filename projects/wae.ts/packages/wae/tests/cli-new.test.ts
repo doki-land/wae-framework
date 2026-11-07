@@ -3,9 +3,15 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { buildCli } from '../src/cli.ts';
 import { templateRoot } from '../src/paths.ts';
+
+const PACKAGE_ROOT = fileURLToPath(new URL('..', import.meta.url));
+const VENDOR_SCRIPT = path.join(PACKAGE_ROOT, 'scripts', 'vendor-templates.mjs');
+const CHECKOUT_TEMPLATES = path.resolve(PACKAGE_ROOT, '..', '..', 'templates');
+const VENDORED_TEMPLATES = path.join(PACKAGE_ROOT, 'templates');
 
 test('wae new scaffolds without gui by default', async () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wae-new-'));
@@ -97,6 +103,33 @@ test('templateRoot falls back to the templates vendored into the tarball', () =>
         assert.equal(templateRoot('open-app', from), path.join(pkgRoot, 'templates', 'open-app'));
     } finally {
         fs.rmSync(tmp, { recursive: true, force: true });
+    }
+});
+
+test('prepack vendors templates without touching the checkout copy', () => {
+    const result = spawnSync(process.execPath, [VENDOR_SCRIPT], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    for (const template of ['open-tools', 'open-app']) {
+        assert.ok(fs.existsSync(path.join(VENDORED_TEMPLATES, template, 'package.json')));
+        assert.ok(fs.existsSync(path.join(CHECKOUT_TEMPLATES, template, 'package.json')));
+    }
+});
+
+test('prepack refuses a templates directory that redirects outside the package', () => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'wae-vendor-outside-'));
+    fs.writeFileSync(path.join(outside, 'marker.txt'), 'keep');
+    if (fs.existsSync(VENDORED_TEMPLATES)) {
+        fs.rmSync(VENDORED_TEMPLATES, { recursive: true, force: true });
+    }
+    fs.symlinkSync(outside, VENDORED_TEMPLATES, 'junction');
+    try {
+        const result = spawnSync(process.execPath, [VENDOR_SCRIPT], { encoding: 'utf8' });
+        assert.equal(result.status, 1, result.stdout);
+        assert.match(result.stderr, /refusing to replace/);
+        assert.deepEqual(fs.readdirSync(outside), ['marker.txt']);
+    } finally {
+        fs.rmSync(VENDORED_TEMPLATES, { recursive: true, force: true });
+        fs.rmSync(outside, { recursive: true, force: true });
     }
 });
 
