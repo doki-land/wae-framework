@@ -33,6 +33,9 @@ node_modules/
 # TypeScript package build
 dist/
 
+# Templates vendored by `prepack` for the `@wae/wae` tarball
+projects/wae.ts/packages/wae/templates/
+
 # Native addon artifacts staged into platform packages
 projects/wae.ts/platforms/*/*.node
 

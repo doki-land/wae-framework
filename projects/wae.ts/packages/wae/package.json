@@ -27,6 +27,7 @@
     "files": [
         "dist",
         "locales",
+        "templates",
         "readme.md"
     ],
     "engines": {
@@ -34,6 +35,7 @@
     },
     "scripts": {
         "build": "tsc -p tsconfig.json",
+        "prepack": "node scripts/vendor-templates.mjs",
         "test": "node --import ../wae-commander/scripts/resolve-ts-from-js.mjs --test --experimental-strip-types ./tests/*.test.ts"
     },
     "dependencies": {

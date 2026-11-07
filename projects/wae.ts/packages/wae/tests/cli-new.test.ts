@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { buildCli } from '../src/cli.ts';
+import { templateRoot } from '../src/paths.ts';
 
 test('wae new scaffolds without gui by default', async () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wae-new-'));
@@ -78,6 +80,21 @@ test('wae new --template open-app scaffolds the full application skeleton', asyn
         const core = fs.readFileSync(path.join(dest, 'crates', 'core', 'Cargo.toml'), 'utf8');
         assert.match(core, /name = "demo_app-core"/);
         assertNoPlaceholders(dest);
+    } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+    }
+});
+
+test('templateRoot falls back to the templates vendored into the tarball', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wae-templates-'));
+    try {
+        const pkgRoot = path.join(tmp, 'package');
+        fs.mkdirSync(path.join(pkgRoot, 'templates', 'open-tools'), { recursive: true });
+        // `from` points at `<pkgRoot>/dist/paths.js`: the checkout sibling does not exist there,
+        // exactly like an installed `@wae/wae`.
+        const from = pathToFileURL(path.join(pkgRoot, 'dist', 'paths.js')).href;
+        assert.equal(templateRoot('open-tools', from), path.join(pkgRoot, 'templates', 'open-tools'));
+        assert.equal(templateRoot('open-app', from), path.join(pkgRoot, 'templates', 'open-app'));
     } finally {
         fs.rmSync(tmp, { recursive: true, force: true });
     }
