@@ -262,6 +262,10 @@ type SmokeAddon = {
 };
 
 async function cmdNativeSmoke(options: ParsedOptions): Promise<number> {
+    // The audit directory is borrowed for this run only: a temp one is created on demand and
+    // removed afterwards, and an inherited value is left exactly as the caller set it.
+    const previousAuditDir = process.env.WAE_AUDIT_DIR;
+    let tempAuditDir: string | undefined;
     try {
         const plan = nativePlan(options);
         const key = `${plan.target.platform}-${plan.target.arch}`;
@@ -289,8 +293,10 @@ async function cmdNativeSmoke(options: ParsedOptions): Promise<number> {
             );
         }
 
-        const auditDir = process.env.WAE_AUDIT_DIR ?? fs.mkdtempSync(path.join(os.tmpdir(), 'wae-native-audit-'));
-        process.env.WAE_AUDIT_DIR = auditDir;
+        if (previousAuditDir === undefined) {
+            tempAuditDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wae-native-audit-'));
+            process.env.WAE_AUDIT_DIR = tempAuditDir;
+        }
         const addon = createRequire(import.meta.url)(addonPath) as SmokeAddon;
         const version = addon.version();
         if (version !== manifest.version) {
@@ -353,6 +359,15 @@ async function cmdNativeSmoke(options: ParsedOptions): Promise<number> {
             return nativeFailure(error);
         }
         return buildFailure('native smoke', error);
+    } finally {
+        if (tempAuditDir !== undefined) {
+            fs.rmSync(tempAuditDir, { recursive: true, force: true });
+        }
+        if (previousAuditDir === undefined) {
+            delete process.env.WAE_AUDIT_DIR;
+        } else {
+            process.env.WAE_AUDIT_DIR = previousAuditDir;
+        }
     }
 }
 
