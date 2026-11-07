@@ -17,6 +17,7 @@ const TEXT_FILES = new Set(['.gitignore', '.editorconfig']);
  * - `{{namePascal}}` → product directory and manifest spelling (`DemoApp`)
  * - `{{nameTitle}}` → human display title (`Demo App`)
  * - `{{nameUpperSnake}}` → env var and constant spelling (`DEMO_APP`)
+ * - `{{waeVersion}}` → release of `@wae/wae` and `@wae/commander` the scaffold depends on
  */
 export function placeholderValues(name: string): Record<string, string> {
     const parts = name.split('-').filter(Boolean);
@@ -77,8 +78,8 @@ function replaceTokens(text: string, values: Record<string, string>): string {
  * (`packages/{{name}}-ui`), so generation must not leave a manual rename step.
  * Directories are processed bottom-up before their own name changes.
  */
-export function rewritePlaceholders(dir: string, name: string): void {
-    rewriteTree(dir, placeholderValues(name));
+export function rewritePlaceholders(dir: string, name: string, waeVersion: string): void {
+    rewriteTree(dir, { ...placeholderValues(name), waeVersion });
 }
 
 function rewriteTree(dir: string, values: Record<string, string>): void {

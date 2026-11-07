@@ -234,8 +234,11 @@ async function loadCli(context: AuditContext): Promise<Cli> {
         fail(`cannot load \`${context.cli}\`: ${detail}`);
     }
     const cli = module.cli;
-    if (cli === undefined || typeof cli.describe !== 'function') {
+    if (cli === undefined) {
         fail(`\`${context.cli}\` must export \`cli\` created with \`@wae/commander\``);
+    }
+    if (typeof cli.describe !== 'function') {
+        fail(`the installed \`@wae/commander\` has no \`describe()\`, so \`${context.commandName}\` cannot be audited; pin a version that ships it`);
     }
     return cli;
 }

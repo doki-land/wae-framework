@@ -19,6 +19,7 @@
         "gui": "wae build && pnpm --filter @wae/{{name}} exec node ./dist/cli.js gui"
     },
     "devDependencies": {
+        "@wae/wae": "{{waeVersion}}",
         "@types/node": "^22.20.4",
         "typescript": "^5.9.2"
     }

@@ -27,7 +27,7 @@
         "build": "tsc -p tsconfig.json"
     },
     "dependencies": {
-        "@wae/commander": "0.0.0"
+        "@wae/commander": "{{waeVersion}}"
     },
     "optionalDependencies": {
         "@wae/{{name}}-win32-x64": "workspace:*"

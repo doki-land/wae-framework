@@ -40,7 +40,7 @@ import {
     capabilityMismatch,
     type NativeAuditFilter,
 } from './native.js';
-import { localesRoot, SCAFFOLD_TEMPLATES, type ScaffoldTemplate, templateRoot } from './paths.js';
+import { localesRoot, packageVersion, SCAFFOLD_TEMPLATES, type ScaffoldTemplate, templateRoot } from './paths.js';
 
 export { defineConfig };
 export type {
@@ -156,7 +156,7 @@ async function cmdNew(options: ParsedOptions, args: string[]): Promise<number> {
         return 1;
     }
     copyDir(template, dest);
-    rewritePlaceholders(dest, name);
+    rewritePlaceholders(dest, name, packageVersion());
     if (templateName === 'open-tools' && !withGui) {
         removePath(path.join(dest, 'gui'));
         removePath(path.join(dest, 'dist', 'gui'));
@@ -617,8 +617,17 @@ async function main(): Promise<void> {
     process.exitCode = await buildCli().parse(process.argv);
 }
 
-const thisFile = fileURLToPath(import.meta.url);
+/** True when `invoked` resolves to this module, following package-manager symlinks. */
+export function isEntryPoint(invoked: string): boolean {
+    try {
+        return fs.realpathSync(invoked) === fs.realpathSync(fileURLToPath(import.meta.url));
+    }
+    catch {
+        return false;
+    }
+}
+
 const invoked = process.argv[1] ? path.resolve(process.argv[1]) : '';
-if (invoked && path.resolve(thisFile) === invoked) {
+if (invoked && isEntryPoint(invoked)) {
     void main();
 }

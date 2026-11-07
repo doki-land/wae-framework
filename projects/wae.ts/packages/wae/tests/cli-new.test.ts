@@ -6,7 +6,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { buildCli } from '../src/cli.ts';
-import { templateRoot } from '../src/paths.ts';
+import { packageVersion, templateRoot } from '../src/paths.ts';
 
 const PACKAGE_ROOT = fileURLToPath(new URL('..', import.meta.url));
 const VENDOR_SCRIPT = path.join(PACKAGE_ROOT, 'scripts', 'vendor-templates.mjs');
@@ -24,8 +24,12 @@ test('wae new scaffolds without gui by default', async () => {
         assert.equal(code, 0);
         const dest = path.join(tmp, name);
         assert.ok(fs.existsSync(path.join(dest, 'package.json')));
-        const pkg = JSON.parse(fs.readFileSync(path.join(dest, 'package.json'), 'utf8')) as { name: string };
+        const pkg = JSON.parse(fs.readFileSync(path.join(dest, 'package.json'), 'utf8')) as {
+            name: string;
+            dependencies: Record<string, string>;
+        };
         assert.equal(pkg.name, name);
+        assert.equal(pkg.dependencies['@wae/commander'], packageVersion());
         assert.equal(fs.existsSync(path.join(dest, 'gui')), false);
     } finally {
         console.log = orig;
@@ -56,6 +60,7 @@ function assertNoPlaceholders(dir: string): void {
         const source = fs.readFileSync(full, 'utf8');
         // GitHub Actions uses `${{ ... }}`, so only the scaffold tokens are checked.
         assert.equal(source.includes('{{name'), false, `unreplaced placeholder in file: ${full}`);
+        assert.equal(source.includes('{{waeVersion}}'), false, `unreplaced version token in file: ${full}`);
     }
 }
 
@@ -80,9 +85,15 @@ test('wae new --template open-app scaffolds the full application skeleton', asyn
         const app = JSON.parse(fs.readFileSync(path.join(dest, 'packages', name, 'package.json'), 'utf8')) as {
             name: string;
             bin: Record<string, string>;
+            dependencies: Record<string, string>;
         };
         assert.equal(app.name, `@wae/${name}`);
         assert.equal(app.bin[name], './dist/cli.js');
+        assert.equal(app.dependencies['@wae/commander'], packageVersion());
+        const workspace = JSON.parse(fs.readFileSync(path.join(dest, 'package.json'), 'utf8')) as {
+            devDependencies: Record<string, string>;
+        };
+        assert.equal(workspace.devDependencies['@wae/wae'], packageVersion());
         const core = fs.readFileSync(path.join(dest, 'crates', 'core', 'Cargo.toml'), 'utf8');
         assert.match(core, /name = "demo_app-core"/);
         assertNoPlaceholders(dest);

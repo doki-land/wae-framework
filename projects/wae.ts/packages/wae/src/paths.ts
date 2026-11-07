@@ -44,3 +44,19 @@ export function openAppTemplateRoot(from: string = import.meta.url): string {
 export function localesRoot(from: string = import.meta.url): string {
     return path.join(packageRoot(from), 'locales');
 }
+
+/**
+ * Version of the running `@wae/wae` package.
+ *
+ * Scaffolds depend on the CLI and commander release that generated them, so the
+ * template tokens resolve to this version instead of a hand-maintained literal
+ * that goes stale between releases.
+ */
+export function packageVersion(from: string = import.meta.url): string {
+    const manifest = path.join(packageRoot(from), 'package.json');
+    const parsed = JSON.parse(fs.readFileSync(manifest, 'utf8')) as { version?: unknown };
+    if (typeof parsed.version !== 'string' || parsed.version.length === 0) {
+        throw new Error(`missing version in ${manifest}`);
+    }
+    return parsed.version;
+}
