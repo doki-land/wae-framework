@@ -4,20 +4,25 @@
 
 - **元 CLI**：TypeScript 包 `@wae/wae`（唯一 bin：`wae`）
 - **应用 CLI 框架**：`@wae/commander`（i18n-first 命令树）
-- **Rust 库**：门面 `wae` + 宏 `wae-macros` + 薄 N-API / Win32 WebView2 / dist（**无** Rust 产品 bin）
+- **Rust 库**：门面 `wae` + 宏 `wae-macros` + 薄 N-API + 自研平台 WebView（Windows / macOS / Linux）+ 审计（**无** Rust 产品 bin）
 
 ```text
 projects/wae.ts/packages/
   wae-commander       # @wae/commander
   wae                 # @wae/wae（new / build / dist / publish）
 projects/wae.ts/templates/
+  open-app            # wae new 模板（commander + locales + native + GUI）
   open-tools          # wae new 模板（commander + locales）
 projects/wae.rs/crates/
   wae                 # Rust 门面库（re-export + #[function] / register_module!）
   wae-macros          # 过程宏
   wae-napi            # 自研薄 Node-API（dyn-symbols，无 napi-rs）
-  wae-webview-win32   # 自研 WebView2 宿主（pumpEvents）→ wae::webview
+  wae-webview         # 平台无关 WebView 合同（OpenOptions / WebViewBackend / WebViewError）
+  wae-webview-win32   # 自研 WebView2 宿主（pumpEvents）
+  wae-webview-macos   # 自研 WKWebView 宿主
+  wae-webview-linux   # 自研 GTK3 + WebKitGTK 宿主
   wae-audit           # 审计记录：固定 schema / 脱敏 / append-only JSONL / 查询 → wae::audit
+  wae-addon           # Node-API addon：version / capabilities / probe / auditQuery
 ```
 
 本仓 **不**内嵌或默认指向任何下游产品仓库；产品通过 path / 版本依赖上述包与 crate。
