@@ -12,13 +12,6 @@ use wae::{
     function, register_module,
 };
 
-mod packaging;
-
-use packaging::{WAE_NAPI_EXPORT_STAGE_ARTIFACT, WAE_NAPI_EXPORT_VALIDATE_PLATFORM_PACKAGE};
-
-/// 原子分发能力的 JS 导出名，供 `capabilities()` 自检。
-const ATOMIC_CAPABILITIES: [&str; 2] = ["stageArtifact", "validatePlatformPackage"];
-
 /// addon 级审计器：应用名固定为 `wae`，版本随构建。
 fn auditor() -> &'static Auditor {
     static AUDITOR: OnceLock<Auditor> = OnceLock::new();
@@ -39,11 +32,6 @@ fn capabilities(ctx: CallContext) -> Result<JsValue> {
     capabilities.set_named("arch", ctx.env().string(consts::ARCH)?)?;
     capabilities.set_named("audit", ctx.env().boolean(true)?)?;
     capabilities.set_named("version", ctx.env().string(env!("CARGO_PKG_VERSION"))?)?;
-    let atomic = ctx.env().array_with_length(ATOMIC_CAPABILITIES.len())?;
-    for (index, name) in ATOMIC_CAPABILITIES.iter().enumerate() {
-        atomic.set_element(index as u32, ctx.env().string(name)?)?;
-    }
-    capabilities.set_named("atomic", atomic)?;
     Ok(capabilities)
 }
 
@@ -65,4 +53,4 @@ fn audit_query(ctx: CallContext) -> Result<JsValue> {
     query_from_napi(&ctx, auditor())
 }
 
-register_module![version, capabilities, probe, audit_query, stage_artifact, validate_platform_package];
+register_module![version, capabilities, probe, audit_query];
