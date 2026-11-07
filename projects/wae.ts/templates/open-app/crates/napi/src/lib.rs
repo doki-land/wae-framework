@@ -107,21 +107,11 @@ fn core_error(error: CoreError) -> Error {
     };
     // Capability errors are refusals, so the audit record uses `rejected` with the
     // capability state code instead of a generic execution failure.
-    if matches!(&error, CoreError::Capability { .. }) {
-        Error::new(text).refused(error.code())
-    }
-    else {
-        Error::new(text)
-    }
+    if matches!(&error, CoreError::Capability { .. }) { Error::new(text).refused(error.code()) } else { Error::new(text) }
 }
 
 /// Upstream host failure codes that mean a required GUI dependency is missing.
-const GUI_DEPENDENCY_CODES: &[&str] = &[
-    "webview2_runtime_missing",
-    "webkit_dependency_missing",
-    "webkit_symbol_missing",
-    "gtk_init_failed",
-];
+const GUI_DEPENDENCY_CODES: &[&str] = &["webview2_runtime_missing", "webkit_dependency_missing", "webkit_symbol_missing", "gtk_init_failed"];
 
 fn webview_error(error: WebViewError) -> CoreError {
     match &error {
@@ -520,7 +510,7 @@ mod tests {
     #[test]
     fn missing_gui_runtime_dependencies_map_to_dependency_blocked() {
         for code in GUI_DEPENDENCY_CODES {
-            let mapped = webview_error(WebViewError::host(*code, "load_libraries", "missing dependency"));
+            let mapped = webview_error(WebViewError::host(code, "load_libraries", "missing dependency"));
             assert_eq!(mapped.code(), CapabilityState::DependencyBlocked.code());
             match mapped {
                 CoreError::Capability { capability, .. } => assert_eq!(capability, capability_ids::GUI),

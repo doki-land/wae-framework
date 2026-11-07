@@ -97,6 +97,8 @@ test('wae new --template open-app scaffolds the full application skeleton', asyn
         const core = fs.readFileSync(path.join(dest, 'crates', 'core', 'Cargo.toml'), 'utf8');
         assert.match(core, /name = "demo_app-core"/);
         assertNoPlaceholders(dest);
+        const fmt = spawnSync('cargo', ['fmt', '--all', '--', '--check'], { cwd: dest, encoding: 'utf8' });
+        assert.equal(fmt.status, 0, fmt.error?.message ?? fmt.stderr);
     } finally {
         fs.rmSync(tmp, { recursive: true, force: true });
     }

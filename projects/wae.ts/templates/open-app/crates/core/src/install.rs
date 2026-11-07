@@ -392,7 +392,9 @@ mod tests {
         let plan = plan_install_with(Platform::Linux, &|key| env.get(key).cloned(), &InstallOptions::default()).unwrap();
         assert_eq!(plan.platform, "linux");
         assert!(PathBuf::from(&plan.config_path).ends_with(Path::new("cfg").join("{{name}}").join("config.json")));
-        assert!(PathBuf::from(plan.shortcut_path.as_ref().unwrap()).ends_with(Path::new("data").join("applications").join("{{name}}.desktop")));
+        assert!(
+            PathBuf::from(plan.shortcut_path.as_ref().unwrap()).ends_with(Path::new("data").join("applications").join("{{name}}.desktop"))
+        );
     }
 
     #[test]

@@ -157,12 +157,28 @@ async function cmdNew(options: ParsedOptions, args: string[]): Promise<number> {
     }
     copyDir(template, dest);
     rewritePlaceholders(dest, name, packageVersion());
+    formatScaffold(dest);
     if (templateName === 'open-tools' && !withGui) {
         removePath(path.join(dest, 'gui'));
         removePath(path.join(dest, 'dist', 'gui'));
     }
     console.log(`created ${dest} (template=${templateName}, with_gui=${withGui})`);
     return 0;
+}
+
+/**
+ * Format generated Rust sources with the template's `rustfmt.toml`.
+ *
+ * A line that contains `{{name}}` can cross the width limit depending on the
+ * chosen name, so the template cannot be pre-formatted for every name. Leaving
+ * the scaffold unformatted makes `check:rust` fail on the very first run.
+ */
+function formatScaffold(dest: string): void {
+    if (!fs.existsSync(path.join(dest, 'crates'))) return;
+    const result = spawnSync('cargo', ['fmt', '--all'], { cwd: dest, stdio: 'inherit' });
+    if (result.status !== 0) {
+        console.error(`[wae] skipped rustfmt: ${result.error?.message ?? `cargo fmt exited ${String(result.status)}`}`);
+    }
 }
 
 async function cmdBuild(options: ParsedOptions): Promise<number> {
