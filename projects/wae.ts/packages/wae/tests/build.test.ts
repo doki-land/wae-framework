@@ -199,6 +199,38 @@ test('`build.steps` narrows a real build to the declared steps', async () => {
     }
 });
 
+test('staging refuses a target that resolves outside the project root through a link', async () => {
+    const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'wae-link-'));
+    const root = path.join(parent, 'project');
+    fs.mkdirSync(root, { recursive: true });
+    fs.writeFileSync(path.join(root, WAE_CONFIG_FILE), `${baseConfig()}    build: {
+        stage: [{ from: 'apps/ui/dist', to: '.staging/nested', clean: true }],
+    },
+});
+`);
+    const outside = path.join(parent, 'outside');
+    fs.mkdirSync(outside, { recursive: true });
+    fs.writeFileSync(path.join(outside, 'marker.txt'), 'keep');
+    fs.symlinkSync(outside, path.join(root, '.staging'), 'junction');
+    try {
+        seedArtifact(root);
+        seedPlatform(root);
+        const ui = path.join(root, 'apps', 'ui', 'dist');
+        fs.mkdirSync(ui, { recursive: true });
+        fs.writeFileSync(path.join(ui, 'index.html'), '<html></html>');
+        await assert.rejects(
+            () => runBuild({ startDir: root, log: () => {} }),
+            (error: unknown) => error instanceof WaeBuildError
+                && error.code === BUILD_CODES.stepFailed
+                && /outside the project root/.test(error.message),
+        );
+        assert.equal(fs.existsSync(path.join(outside, 'marker.txt')), true);
+        assert.equal(fs.existsSync(path.join(outside, 'nested')), false);
+    } finally {
+        fs.rmSync(parent, { recursive: true, force: true });
+    }
+});
+
 test('staging copies the declared tree and verifies outputs', async () => {
     const root = hostProject(`${baseConfig()}    build: {
         stage: [{ from: 'apps/ui/dist', to: 'apps/tool/dist/ui', clean: true, ignore: ['notes.txt'] }],
@@ -213,10 +245,13 @@ test('staging copies the declared tree and verifies outputs', async () => {
         fs.mkdirSync(ui, { recursive: true });
         fs.writeFileSync(path.join(ui, 'index.html'), '<html></html>');
         fs.writeFileSync(path.join(ui, 'notes.txt'), 'ignored');
+        const target = path.join(root, 'apps', 'tool', 'dist', 'ui');
+        fs.mkdirSync(target, { recursive: true });
+        fs.writeFileSync(path.join(target, 'stale.txt'), 'stale');
         const report = await runBuild({ startDir: root, log: () => {} });
         const staging = report.steps.find((step) => step.name === 'staging');
         assert.equal(staging?.status, 'ok');
-        const target = path.join(root, 'apps', 'tool', 'dist', 'ui');
+        assert.equal(fs.existsSync(path.join(target, 'stale.txt')), false);
         assert.equal(fs.existsSync(path.join(target, 'index.html')), true);
         assert.equal(fs.existsSync(path.join(target, 'notes.txt')), false);
     } finally {

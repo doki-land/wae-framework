@@ -251,6 +251,59 @@ async function runSkillsStep(context: BuildContext): Promise<StepResult> {
     return { step: { name: 'skills', status: 'ok', detail: `${skillsCount} skill(s) across ${skills.packages.length} package(s)` } };
 }
 
+/**
+ * Refuse a staging target whose resolved path leaves the project root.
+ *
+ * The config check rejects absolute and `..` strings, but a symlink or junction inside the
+ * project can still resolve outside it. `clean` deletes recursively, so the real path has to be
+ * checked before anything is removed or written. Missing targets are checked through their
+ * nearest existing ancestor, which is also where a new directory would be created.
+ */
+function assertStagingTarget(root: string, to: string): void {
+    let realRoot: string;
+    try {
+        realRoot = fs.realpathSync(root);
+    } catch (error) {
+        throw new WaeBuildError(BUILD_CODES.stepFailed, `project root could not be resolved: ${root}`, {
+            attempts: [root],
+            cause: error,
+        });
+    }
+    let existing = to;
+    while (!fs.existsSync(existing)) {
+        const parent = path.dirname(existing);
+        if (parent === existing) break;
+        existing = parent;
+    }
+    let realExisting: string;
+    try {
+        realExisting = fs.realpathSync(existing);
+    } catch (error) {
+        throw new WaeBuildError(BUILD_CODES.stepFailed, `staging target could not be resolved: ${to}`, {
+            attempts: [to],
+            cause: error,
+        });
+    }
+    if (realExisting === realRoot) {
+        if (fs.existsSync(to)) {
+            throw new WaeBuildError(
+                BUILD_CODES.stepFailed,
+                `staging target ${to} resolves to the project root itself, which must not be cleaned`,
+                { attempts: [to, realRoot] },
+            );
+        }
+        return;
+    }
+    const relative = path.relative(realRoot, realExisting);
+    if (path.isAbsolute(relative) || relative.split(path.sep)[0] === '..') {
+        throw new WaeBuildError(
+            BUILD_CODES.stepFailed,
+            `staging target ${to} resolves to ${realExisting}, outside the project root ${realRoot}`,
+            { attempts: [to, realExisting] },
+        );
+    }
+}
+
 function runStagingStep(context: BuildContext, selected: WaeNativeTarget | undefined): StepResult {
     const build = context.config.build;
     const stage = build?.stage ?? [];
@@ -277,6 +330,7 @@ function runStagingStep(context: BuildContext, selected: WaeNativeTarget | undef
             );
         }
         const to = path.resolve(context.root, entry.to);
+        assertStagingTarget(context.root, to);
         if (entry.clean) fs.rmSync(to, { recursive: true, force: true });
         copyTree(from, to, entry.ignore ?? []);
         if (!fs.existsSync(to)) {
