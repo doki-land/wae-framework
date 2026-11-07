@@ -18,7 +18,6 @@ export type NativeCapabilities = {
     arch: string;
     audit: boolean;
     version: string;
-    atomic?: string[];
 };
 
 export type NativeProbe = {

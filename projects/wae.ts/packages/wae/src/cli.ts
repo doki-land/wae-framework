@@ -250,9 +250,9 @@ async function cmdNativeStage(options: ParsedOptions): Promise<number> {
 
 /**
  * The addon contract shared by every project: `version()` and `capabilities()`
- * are required. `platform`, `arch`, `audit`, `atomic`, `probe()` and
- * `auditQuery()` are part of the wae native-addon shape; when an app omits one,
- * the smoke reports it as not checked instead of pretending it passed.
+ * are required. `platform`, `arch`, `audit`, `probe()` and `auditQuery()` are
+ * part of the wae native-addon shape; when an app omits one, the smoke reports
+ * it as not checked instead of pretending it passed.
  */
 type SmokeAddon = {
     version(): string;
@@ -311,11 +311,6 @@ async function cmdNativeSmoke(options: ParsedOptions): Promise<number> {
         const mismatch = capabilityMismatch(capabilities, { platform: expectedPlatform, arch: expectedArch, version });
         if (mismatch !== undefined) {
             throw new WaeBuildError(BUILD_CODES.platformPackageInvalid, mismatch, { platform: key });
-        }
-        if (capabilities.atomic !== undefined && (!Array.isArray(capabilities.atomic) || capabilities.atomic.length === 0)) {
-            throw new WaeBuildError(BUILD_CODES.platformPackageInvalid, 'capabilities listed an empty atomic export set', {
-                platform: key,
-            });
         }
         let probeState = 'not exported';
         if (typeof addon.probe === 'function') {
@@ -408,10 +403,6 @@ async function cmdNativeInfo(options: ParsedOptions): Promise<number> {
         console.log(`version: ${report.version}`);
         console.log(`probe: ${report.probe.ok ? 'ok' : 'failed'} (${report.probe.platform}/${report.probe.arch})`);
         console.log(`audit: ${String(report.capabilities.audit)} (probe entries: ${report.auditEntries})`);
-        const atomic = report.capabilities.atomic ?? [];
-        if (atomic.length) {
-            console.log(`atomic: ${atomic.join(', ')}`);
-        }
         return 0;
     } catch (error) {
         return nativeFailure(error);
