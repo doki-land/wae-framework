@@ -39,10 +39,10 @@ use windows::{
             Input::KeyboardAndMouse::VK_F12,
             WindowsAndMessaging::{
                 CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GWLP_USERDATA, GetClientRect,
-                GetWindowLongPtrW, IDC_ARROW, IsWindow, LoadCursorW, MSG, PM_REMOVE, PeekMessageW, PostMessageW, PostQuitMessage,
-                RegisterClassW, SW_SHOW, SW_SHOWNORMAL, SWP_NOACTIVATE, SWP_NOZORDER, SetForegroundWindow, SetWindowLongPtrW, SetWindowPos,
-                ShowWindow, TranslateMessage, WINDOW_EX_STYLE, WM_CLOSE, WM_CREATE, WM_DESTROY, WM_DPICHANGED, WM_KEYDOWN, WM_QUIT, WM_SIZE,
-                WNDCLASSW, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+                GetWindowLongPtrW, IDC_ARROW, IsIconic, IsWindow, LoadCursorW, MSG, PM_REMOVE, PeekMessageW, PostMessageW, PostQuitMessage,
+                RegisterClassW, SW_RESTORE, SW_SHOW, SW_SHOWNORMAL, SWP_NOACTIVATE, SWP_NOZORDER, SetForegroundWindow, SetWindowLongPtrW,
+                SetWindowPos, ShowWindow, TranslateMessage, WINDOW_EX_STYLE, WM_CLOSE, WM_CREATE, WM_DESTROY, WM_DPICHANGED, WM_KEYDOWN,
+                WM_QUIT, WM_SIZE, WNDCLASSW, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
             },
         },
     },
@@ -857,5 +857,24 @@ impl WebViewBackend for Win32Backend {
 
     fn is_alive(&self) -> bool {
         self.state.alive && !self.quit
+    }
+
+    fn focus(&mut self) -> Result<()> {
+        if !self.is_alive() {
+            return Err(WebViewError::host("window_not_alive", "focus", "窗口已关闭，无法唤醒"));
+        }
+        let hwnd = self.state.hwnd;
+        let known = unsafe { IsWindow(Some(hwnd)) }.as_bool();
+        if !known {
+            return Err(WebViewError::host("window_not_alive", "focus", "窗口句柄已失效"));
+        }
+        unsafe {
+            if IsIconic(hwnd).as_bool() {
+                let _ = ShowWindow(hwnd, SW_RESTORE);
+            }
+            let _ = ShowWindow(hwnd, SW_SHOW);
+            let _ = SetForegroundWindow(hwnd);
+        }
+        Ok(())
     }
 }

@@ -41,6 +41,7 @@ struct GtkApi {
     gtk_container_add: unsafe extern "C" fn(*mut GtkWidget, *mut GtkWidget),
     gtk_widget_show_all: unsafe extern "C" fn(*mut GtkWidget),
     gtk_widget_destroy: unsafe extern "C" fn(*mut GtkWidget),
+    gtk_window_present: unsafe extern "C" fn(*mut GtkWidget),
     gtk_events_pending: unsafe extern "C" fn() -> GBool,
     gtk_main_iteration_do: unsafe extern "C" fn(GBool) -> GBool,
     g_signal_connect_data:
@@ -82,6 +83,7 @@ impl Libs {
                 gtk_container_add: symbol(&gtk, "gtk_container_add")?,
                 gtk_widget_show_all: symbol(&gtk, "gtk_widget_show_all")?,
                 gtk_widget_destroy: symbol(&gtk, "gtk_widget_destroy")?,
+                gtk_window_present: symbol(&gtk, "gtk_window_present")?,
                 gtk_events_pending: symbol(&gtk, "gtk_events_pending")?,
                 gtk_main_iteration_do: symbol(&gtk, "gtk_main_iteration_do")?,
                 g_signal_connect_data: symbol(&gtk, "g_signal_connect_data")?,
@@ -301,6 +303,19 @@ impl WebViewBackend for LinuxBackend {
             // SAFETY: 窗口由本结构创建，且仅在仍存活时销毁。
             unsafe { (self.api.gtk_widget_destroy)(self.window) };
         }
+        Ok(())
+    }
+
+    fn is_alive(&self) -> bool {
+        self.shared.alive.load(Ordering::SeqCst)
+    }
+
+    fn focus(&mut self) -> Result<()> {
+        if !self.shared.alive.load(Ordering::SeqCst) {
+            return Err(WebViewError::host("window_not_alive", "focus", "窗口已关闭，无法唤醒"));
+        }
+        // SAFETY: 窗口由本结构创建且仍存活。
+        unsafe { (self.api.gtk_window_present)(self.window) };
         Ok(())
     }
 

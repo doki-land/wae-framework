@@ -103,6 +103,8 @@ pub enum Capability {
     EventPump,
     /// 关闭窗口。
     Close,
+    /// 恢复并前置已打开的窗口（单实例二次启动唤醒）。
+    Focus,
 }
 
 /// 编译目标平台。
@@ -267,6 +269,12 @@ pub trait WebViewBackend: Sized {
 
     /// 窗口是否仍处于打开状态。
     fn is_alive(&self) -> bool;
+
+    /// 恢复并前置已打开的窗口。
+    ///
+    /// 单实例二次启动按 `window.secondLaunch: 'focus'` 调用本方法。平台缺少该能力
+    /// 时必须返回 [`WebViewError::Unsupported`]（`Capability::Focus`），不得静默成功。
+    fn focus(&mut self) -> Result<()>;
 }
 
 /// 由外部驱动的 WebView 宿主；`B` 由门面按目标平台选定。
@@ -298,6 +306,11 @@ impl<B: WebViewBackend> WebViewHost<B> {
     /// 窗口是否仍处于打开状态。
     pub fn is_alive(&self) -> bool {
         self.backend.is_alive()
+    }
+
+    /// 恢复并前置已打开的窗口；窗口已关闭时返回结构化失败。
+    pub fn focus(&mut self) -> Result<()> {
+        self.backend.focus()
     }
 
     /// 当前后端名（例如 `win32` / `macos` / `linux`）。

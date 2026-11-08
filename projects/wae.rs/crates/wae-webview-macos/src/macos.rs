@@ -185,4 +185,14 @@ impl WebViewBackend for MacosBackend {
     fn is_alive(&self) -> bool {
         self.alive
     }
+
+    fn focus(&mut self) -> Result<()> {
+        if !self.alive {
+            return Err(WebViewError::host("window_not_alive", "focus", "窗口已关闭，无法唤醒"));
+        }
+        self.window.makeKeyAndOrderFront(None);
+        #[allow(deprecated)]
+        self.app.activateIgnoringOtherApps(true);
+        Ok(())
+    }
 }
