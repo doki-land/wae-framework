@@ -1,13 +1,18 @@
-//! WAE 声明式插件宿主：作用域收窄与集中错误码。
+//! WAE 声明式插件宿主：清单加载、作用域收窄与集中错误码。
 //!
 //! 插件只提交候选与处置请求，判定与执行永远在核心。本 crate 是五个 Open 应用
 //! 共用的唯一加载器：不执行代码、不给插件文件句柄、不暴露删除入口。
 #![deny(missing_docs)]
 
 pub mod error;
+pub mod manifest;
 pub mod scope;
 
 pub use error::{EXIT_DEGRADED, EXIT_FAILURE, EXIT_OK, ErrorCode, PluginError, PluginFailure};
+pub use manifest::{
+    BUILTIN_NAMESPACE, EVIDENCE_FIELDS, LoadedPack, MANIFEST_FILE, MatchCondition, PLUGIN_SCHEMA, PackContext, PluginKind, PluginManifest,
+    PluginOrigin, PluginSource, Rule, RuleKind, RuleMatch, load_pack, validate_manifest,
+};
 pub use scope::{
     DEFAULT_SCOPE_MAX_BYTES, DEFAULT_SCOPE_MAX_DEPTH, ManifestScope, PathFacts, ResolvedRoot, ResolvedScope, ScanScope, ScopeResolution,
     resolve, validate_manifest_scope,
