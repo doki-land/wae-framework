@@ -10,6 +10,7 @@ members = [
     "projects/wae.rs/crates/wae-webview-macos",
     "projects/wae.rs/crates/wae-webview-linux",
     "projects/wae.rs/crates/wae-audit",
+    "projects/wae.rs/crates/wae-plugins",
 ]
 default-members = [
     "projects/wae.rs/crates/wae",
@@ -21,6 +22,7 @@ default-members = [
     "projects/wae.rs/crates/wae-webview-macos",
     "projects/wae.rs/crates/wae-webview-linux",
     "projects/wae.rs/crates/wae-audit",
+    "projects/wae.rs/crates/wae-plugins",
 ]
 
 [workspace.package]
