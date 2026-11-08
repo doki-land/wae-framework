@@ -214,3 +214,19 @@ pub mod audit {
         Ok(Some(value.as_i64()?.max(0) as u64))
     }
 }
+
+/// `wae::plugins`：声明式插件宿主（feature `plugins`，默认开启）。
+///
+/// 五个 Open 应用共用同一份加载器：清单解析、作用域收窄、候选归因与错误码只在本
+/// 处实现。插件只提交候选与处置请求，判定与执行永远在核心。
+///
+/// ```ignore
+/// use wae::plugins::{CandidateSet, PackContext, load_pack};
+///
+/// let context = PackContext::new(&["open-cleaner"], &["dev-artifacts"], &[]);
+/// let pack = load_pack(std::path::Path::new("./plugins/cleaner-rules"), &context)?;
+/// ```
+#[cfg(feature = "plugins")]
+pub mod plugins {
+    pub use wae_plugins::*;
+}

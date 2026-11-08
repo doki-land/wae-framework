@@ -10,17 +10,20 @@ description = "WAE Rust 门面库：统一导出 N-API / WebView 与过程宏"
 publish = false
 
 [features]
-default = ["webview", "audit"]
+default = ["webview", "audit", "plugins"]
 ## 导出 `wae::webview`（按编译目标选择平台后端）
 webview = ["dep:wae-webview", "dep:wae-webview-win32", "dep:wae-webview-macos", "dep:wae-webview-linux"]
 ## 导出 `wae::audit`（审计记录与查询）
 audit = ["dep:wae-audit"]
+## 导出 `wae::plugins`（声明式插件宿主）
+plugins = ["dep:wae-plugins"]
 
 [dependencies]
 wae-napi = { path = "../wae-napi" }
 wae-macros = { path = "../wae-macros" }
 wae-webview = { path = "../wae-webview", optional = true }
 wae-audit = { path = "../wae-audit", optional = true }
+wae-plugins = { path = "../wae-plugins", optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 wae-webview-win32 = { path = "../wae-webview-win32", optional = true }

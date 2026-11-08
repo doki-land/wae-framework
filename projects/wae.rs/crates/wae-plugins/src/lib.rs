@@ -1,13 +1,25 @@
-//! WAE 声明式插件宿主：清单加载、作用域收窄与集中错误码。
+//! WAE 声明式插件宿主：清单加载、作用域收窄、候选归因与集中错误码。
 //!
 //! 插件只提交候选与处置请求，判定与执行永远在核心。本 crate 是五个 Open 应用
 //! 共用的唯一加载器：不执行代码、不给插件文件句柄、不暴露删除入口。
+//!
+//! ```ignore
+//! use wae::plugins::{CandidateSet, PackContext, load_pack};
+//!
+//! let context = PackContext::new(&["open-cleaner"], &["dev-artifacts"], &[]);
+//! let pack = load_pack(std::path::Path::new("./plugins/cleaner-rules"), &context)?;
+//! ```
 #![deny(missing_docs)]
 
+pub mod candidate;
 pub mod error;
 pub mod manifest;
 pub mod scope;
 
+pub use candidate::{
+    Attribution, AttributionSource, CANDIDATE_SCHEMA, CandidateSet, CoreDecision, DecisionStatus, EvidenceFacts, EvidenceMap, EvidenceValue,
+    FileType, PluginCandidate, ScopeViolation, recompute_evidence, verify_attribution, verify_evidence,
+};
 pub use error::{EXIT_DEGRADED, EXIT_FAILURE, EXIT_OK, ErrorCode, PluginError, PluginFailure};
 pub use manifest::{
     BUILTIN_NAMESPACE, EVIDENCE_FIELDS, LoadedPack, MANIFEST_FILE, MatchCondition, PLUGIN_SCHEMA, PackContext, PluginKind, PluginManifest,
