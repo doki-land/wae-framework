@@ -350,6 +350,45 @@ test('`audit` actor mapping is written into the app CLI runtime contract', async
     }
 });
 
+test('`window` policy is written into the app CLI runtime contract', async () => {
+    const root = configProject(`window: { mode: 'single', secondLaunch: 'reject' },`);
+    try {
+        await runBuild({ startDir: root, log: () => {} });
+        const contract = JSON.parse(
+            fs.readFileSync(path.join(root, 'packages', 'app', 'dist', 'wae-runtime.json'), 'utf8'),
+        ) as {
+            window?: {
+                policy?: { mode?: string; secondLaunch?: string; maxWindows?: number };
+                host?: { supported?: boolean; code?: string; reason?: string };
+            };
+        };
+        assert.deepEqual(contract.window?.policy, { mode: 'single', secondLaunch: 'reject', maxWindows: 1 });
+        assert.deepEqual(contract.window?.host, { mode: 'single', supported: true });
+    } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test('an unsupported `window.mode` fails the build with a stable code and reason', async () => {
+    const root = configProject(`window: { mode: 'independent' },`);
+    try {
+        await assert.rejects(
+            () => runBuild({ startDir: root, log: () => {} }),
+            (error: unknown) => error instanceof WaeBuildError
+                && error.code === BUILD_CODES.windowModeUnsupported
+                && error.reason === 'window_mode_unsupported'
+                && /one window per process/.test(error.message),
+        );
+        assert.equal(
+            fs.existsSync(path.join(root, 'packages', 'app', 'dist', 'wae-runtime.json')),
+            false,
+            'an unsupported mode must not emit a contract that claims support',
+        );
+    } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+    }
+});
+
 test('staging copies the declared tree and verifies outputs', async () => {
     const root = hostProject(`${baseConfig()}    build: {
         stage: [{ from: 'apps/ui/dist', to: 'apps/tool/dist/ui', clean: true, ignore: ['notes.txt'] }],

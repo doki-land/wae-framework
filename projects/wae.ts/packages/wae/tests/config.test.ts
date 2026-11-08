@@ -14,6 +14,7 @@ import {
 } from '../src/config.ts';
 import { runBuild } from '../src/build.ts';
 import { BUILD_CODES, WaeBuildError } from '../src/build-error.ts';
+import { resolveWindowPolicy, WAE_WINDOW_CODES, windowModeSupport } from '../src/window.ts';
 
 function tempDir(prefix = 'wae-config-'): string {
     return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -74,6 +75,7 @@ export default defineConfig({
     ci: { repo: 'scope/tool', workflows: ['check-rust.yml'], shaBinding: true },
     install: { shortcutDefault: true },
     audit: { actor: { kind: 'flag', id: 'flag', source: 'env' } },
+    window: { mode: 'single', secondLaunch: 'focus' },
 });
 `;
 
@@ -89,6 +91,7 @@ test('static config parser accepts every documented key', () => {
     assert.equal(config.ci?.shaBinding, true);
     assert.equal(config.install?.shortcutDefault, true);
     assert.equal(config.audit?.actor.kind, 'flag');
+    assert.deepEqual(config.window, { mode: 'single', secondLaunch: 'focus' });
 });
 
 test('static parser rejects executable values', () => {
@@ -138,6 +141,60 @@ test('`ci`, `install` and `audit` reject invalid values as config_invalid', () =
             body,
         );
     }
+});
+
+test('`window` requires an explicit mode and rejects cross-mode fields', () => {
+    const cases: Array<[string, RegExp, string]> = [
+        [`window: {}`, /window\.mode: expected one of/, WAE_WINDOW_CODES.invalid],
+        [`window: { mode: 'many' }`, /window\.mode: expected one of/, WAE_WINDOW_CODES.invalid],
+        [`window: { mode: 'single', maxWindows: 2 }`, /maxWindows.*must be 1/, WAE_WINDOW_CODES.modeConflict],
+        [`window: { mode: 'single', childWindows: 'owned' }`, /childWindows.*only applies/, WAE_WINDOW_CODES.modeConflict],
+        [`window: { mode: 'independent', secondLaunch: 'focus' }`, /secondLaunch.*only applies/, WAE_WINDOW_CODES.modeConflict],
+        [`window: { mode: 'independent', maxWindows: 1 }`, /needs at least 2 windows/, WAE_WINDOW_CODES.modeConflict],
+        [`window: { mode: 'primary-secondary', maxWindows: 0 }`, /must be a positive integer/, WAE_WINDOW_CODES.invalid],
+        [`window: { mode: 'single', title: 'Tool' }`, /unknown key `title`/, WAE_WINDOW_CODES.invalid],
+    ];
+    for (const [body, pattern, reason] of cases) {
+        assert.throws(
+            () => parseConfigSource(`export default defineConfig({ ${body} });`),
+            (error: unknown) => error instanceof WaeConfigError
+                && error.code === 'config_invalid'
+                && error.reason === reason
+                && pattern.test(error.message),
+            body,
+        );
+    }
+});
+
+test('`window` modes normalize their declared defaults', () => {
+    const single = parseConfigSource(`export default defineConfig({ window: { mode: 'single' } });`);
+    assert.deepEqual(resolveWindowPolicy(single.window!), { mode: 'single', secondLaunch: 'focus', maxWindows: 1 });
+
+    const rejected = parseConfigSource(`export default defineConfig({ window: { mode: 'single', secondLaunch: 'reject' } });`);
+    assert.deepEqual(resolveWindowPolicy(rejected.window!), { mode: 'single', secondLaunch: 'reject', maxWindows: 1 });
+
+    const independent = parseConfigSource(`export default defineConfig({ window: { mode: 'independent', maxWindows: 3 } });`);
+    assert.deepEqual(resolveWindowPolicy(independent.window!), { mode: 'independent', maxWindows: 3 });
+
+    const primary = parseConfigSource(`export default defineConfig({ window: { mode: 'primary-secondary' } });`);
+    assert.deepEqual(resolveWindowPolicy(primary.window!), {
+        mode: 'primary-secondary',
+        maxWindows: 8,
+        childWindows: 'owned',
+    });
+});
+
+test('`window` reports host support instead of falling back to one window', () => {
+    assert.deepEqual(windowModeSupport('single'), { mode: 'single', supported: true });
+
+    const independent = windowModeSupport('independent');
+    assert.equal(independent.supported, false);
+    assert.equal(independent.code, WAE_WINDOW_CODES.modeUnsupported);
+    assert.match(independent.reason ?? '', /one window per process/);
+
+    const primary = windowModeSupport('primary-secondary');
+    assert.equal(primary.supported, false);
+    assert.equal(primary.code, WAE_WINDOW_CODES.modeUnsupported);
 });
 
 test('unknown keys fail as config_invalid', () => {

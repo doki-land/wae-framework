@@ -8,6 +8,13 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import {
+    WAE_CHILD_WINDOWS,
+    WAE_SECOND_LAUNCH,
+    WAE_WINDOW_CODES,
+    WAE_WINDOW_MODES,
+    type WaeWindowConfig,
+} from './window.js';
 
 /** Config file name discovered from the project root upward. */
 export const WAE_CONFIG_FILE = 'wae.config.ts';
@@ -132,6 +139,7 @@ export type WaeConfig = {
     ci?: WaeCiConfig;
     install?: WaeInstallConfig;
     audit?: WaeAuditConfig;
+    window?: WaeWindowConfig;
 };
 
 /** Identity helper that gives config files contextual typing. */
@@ -143,18 +151,22 @@ export function defineConfig(config: WaeConfig): WaeConfig {
 export class WaeConfigError extends Error {
     readonly code: 'config_not_static' | 'config_invalid';
     readonly file?: string;
+    /** Stable sub-code for a rejected combination, e.g. `window_mode_conflict`. */
+    readonly reason?: string;
 
-    constructor(code: 'config_not_static' | 'config_invalid', message: string, file?: string) {
+    constructor(code: 'config_not_static' | 'config_invalid', message: string, file?: string, reason?: string) {
         super(message);
         this.name = 'WaeConfigError';
         this.code = code;
         this.file = file;
+        this.reason = reason;
     }
 
     toJSON() {
         return {
             code: this.code,
             capability: 'config',
+            ...(this.reason ? { reason: this.reason } : {}),
             ...(this.file ? { path: this.file } : {}),
             message: this.message,
         };
@@ -563,7 +575,7 @@ class StaticParser {
 /** Validate the parsed object against the `wae.config.ts` schema, rejecting unknown keys. */
 export function validateConfig(raw: unknown, file = WAE_CONFIG_FILE): WaeConfig {
     const root = expectObject(raw, file);
-    assertKeys(root, ['native', 'packages', 'build', 'skills', 'release', 'ci', 'install', 'audit'], file);
+    assertKeys(root, ['native', 'packages', 'build', 'skills', 'release', 'ci', 'install', 'audit', 'window'], file);
 
     const config: WaeConfig = {};
     if (root.native !== undefined) config.native = validateNative(root.native, `${file}#native`);
@@ -574,6 +586,7 @@ export function validateConfig(raw: unknown, file = WAE_CONFIG_FILE): WaeConfig 
     if (root.ci !== undefined) config.ci = validateCi(root.ci, `${file}#ci`);
     if (root.install !== undefined) config.install = validateInstall(root.install, `${file}#install`);
     if (root.audit !== undefined) config.audit = validateAudit(root.audit, `${file}#audit`);
+    if (root.window !== undefined) config.window = validateWindow(root.window, `${file}#window`);
 
     if (config.native && config.packages) {
         for (const target of config.native.targets) {
@@ -823,6 +836,63 @@ function validateInstall(value: unknown, where: string): WaeInstallConfig {
     return { shortcutDefault: expectBoolean(obj.shortcutDefault, `${where}.shortcutDefault`) };
 }
 
+/**
+ * Validate the `window` block.
+ *
+ * `mode` is always explicit. A field that only belongs to another mode is a
+ * `window_mode_conflict`, not an ignored extra: silently dropping it would let
+ * a config claim semantics the host never applies.
+ */
+function validateWindow(value: unknown, where: string): WaeWindowConfig {
+    try {
+        return validateWindowFields(value, where);
+    } catch (error) {
+        if (error instanceof WaeConfigError && error.code === 'config_invalid' && error.reason === undefined) {
+            throw new WaeConfigError('config_invalid', error.message, error.file, WAE_WINDOW_CODES.invalid);
+        }
+        throw error;
+    }
+}
+
+function validateWindowFields(value: unknown, where: string): WaeWindowConfig {
+    const obj = expectObject(value, where);
+    assertKeys(obj, ['mode', 'secondLaunch', 'maxWindows', 'childWindows'], where);
+    const mode = expectEnum(obj.mode, WAE_WINDOW_MODES, `${where}.mode`);
+    const config: WaeWindowConfig = { mode };
+
+    if (obj.secondLaunch !== undefined) {
+        if (mode !== 'single') {
+            invalid(`${where}.secondLaunch`, `\`secondLaunch\` only applies to \`mode: 'single'\`, not '${mode}'`, WAE_WINDOW_CODES.modeConflict);
+        }
+        config.secondLaunch = expectEnum(obj.secondLaunch, WAE_SECOND_LAUNCH, `${where}.secondLaunch`);
+    }
+
+    if (obj.maxWindows !== undefined) {
+        const max = expectNumber(obj.maxWindows, `${where}.maxWindows`);
+        if (!Number.isInteger(max) || max < 1) invalid(`${where}.maxWindows`, 'must be a positive integer');
+        if (mode === 'single' && max !== 1) {
+            invalid(`${where}.maxWindows`, "`mode: 'single'` owns exactly one window, so `maxWindows` must be 1", WAE_WINDOW_CODES.modeConflict);
+        }
+        if (mode !== 'single' && max < 2) {
+            invalid(`${where}.maxWindows`, `\`mode: '${mode}'\` needs at least 2 windows`, WAE_WINDOW_CODES.modeConflict);
+        }
+        config.maxWindows = max;
+    }
+
+    if (obj.childWindows !== undefined) {
+        if (mode !== 'primary-secondary') {
+            invalid(
+                `${where}.childWindows`,
+                `\`childWindows\` only applies to \`mode: 'primary-secondary'\`, not '${mode}'`,
+                WAE_WINDOW_CODES.modeConflict,
+            );
+        }
+        config.childWindows = expectEnum(obj.childWindows, WAE_CHILD_WINDOWS, `${where}.childWindows`);
+    }
+
+    return config;
+}
+
 function validateAudit(value: unknown, where: string): WaeAuditConfig {
     const obj = expectObject(value, where);
     assertKeys(obj, ['actor'], where);
@@ -924,6 +994,6 @@ function assertKeys(obj: Record<string, unknown>, allowed: readonly string[], wh
     }
 }
 
-function invalid(where: string, message: string): never {
-    throw new WaeConfigError('config_invalid', `${where}: ${message}`, where.split('#')[0]);
+function invalid(where: string, message: string, reason?: string): never {
+    throw new WaeConfigError('config_invalid', `${where}: ${message}`, where.split('#')[0], reason);
 }

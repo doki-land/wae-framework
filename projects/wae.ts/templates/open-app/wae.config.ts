@@ -75,4 +75,10 @@ export default defineConfig({
     // resolves the audit actor from the channels declared here.
     install: { shortcutDefault: true },
     audit: { actor: { kind: 'flag', id: 'flag', source: 'env' } },
+    // Explicit window policy: one window per process, and a second launch
+    // focuses the existing window instead of opening another one. Declaring
+    // `independent` or `primary-secondary` requires a host that owns a window
+    // registry; the current host fails the build with
+    // `window_mode_unsupported` and a reason instead of downgrading silently.
+    window: { mode: 'single', secondLaunch: 'focus' },
 });

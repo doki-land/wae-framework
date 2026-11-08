@@ -47,4 +47,13 @@ export default defineConfig({
     ci: { repo: 'scope/tool', workflows: ['check-rust.yml'], shaBinding: true },
     install: { shortcutDefault: true },
     audit: { actor: { kind: 'flag', id: 'flag', source: 'env' } },
+    window: { mode: 'single', secondLaunch: 'focus' },
+});
+
+export const independent = defineConfig({
+    window: { mode: 'independent', maxWindows: 4 },
+});
+
+export const primarySecondary = defineConfig({
+    window: { mode: 'primary-secondary', maxWindows: 3, childWindows: 'detached' },
 });

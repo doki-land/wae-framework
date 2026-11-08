@@ -21,6 +21,7 @@ import {
 } from './config.js';
 import { cargoBuildNative, findNativeArtifact, nativeBuildRequest, selectNativeTarget, stageBuiltArtifact } from './native-stage.js';
 import { auditSkills } from './skills-audit.js';
+import { resolveWindowPolicy, windowModeSupport } from './window.js';
 
 /** Exact `X.Y.Z` versions, no ranges or prerelease. */
 export const EXACT_VERSION_RE = /^\d+\.\d+\.\d+$/;
@@ -354,6 +355,7 @@ function runStagingStep(context: BuildContext, selected: WaeNativeTarget | undef
     }
 
     const ci = validateCiContract(context);
+    const windowPolicy = validateWindowContract(context);
     const runtime = writeRuntimeContract(context);
 
     const detail = [
@@ -361,6 +363,7 @@ function runStagingStep(context: BuildContext, selected: WaeNativeTarget | undef
         `${platformPackages(context).length} platform package(s)`,
         context.config.release === undefined ? 'release not configured' : `release set ${context.config.release.packages.length} package(s)`,
         ci ?? 'ci not configured',
+        windowPolicy,
         runtime === undefined ? 'runtime contract not configured' : `runtime contract ${path.relative(context.root, runtime)}`,
     ].join(', ');
     return { step: { name: 'staging', status: 'ok', detail: `validated ${detail}` }, selected };
@@ -432,6 +435,32 @@ function validateCiContract(context: BuildContext): string | undefined {
     return `ci ${ci.repo} (${covered.join(', ')})`;
 }
 
+/**
+ * Enforce the declared window model against the host capability table.
+ *
+ * A mode the host cannot honour fails the build with `window_mode_unsupported`
+ * and a reason. Returning `false` from a capability probe and continuing with
+ * one window would be a silent downgrade, which this contract forbids.
+ */
+function validateWindowContract(context: BuildContext): string {
+    const declared = context.config.window;
+    if (declared === undefined) return 'window policy not declared (defaults to single)';
+
+    const policy = resolveWindowPolicy(declared);
+    const support = windowModeSupport(policy.mode);
+    if (!support.supported) {
+        throw new WaeBuildError(
+            BUILD_CODES.windowModeUnsupported,
+            `\`window.mode\` is \`${policy.mode}\` but the host cannot honour it: ${support.reason ?? 'no reason recorded'}`,
+            {
+                reason: support.code ?? 'window_mode_unsupported',
+                attempts: [`window.mode: '${policy.mode}'`],
+            },
+        );
+    }
+    return `window ${policy.mode}${policy.mode === 'single' ? ` (second launch: ${policy.secondLaunch})` : ''}`;
+}
+
 /** Job ids declared at the first level of a workflow `jobs:` block. */
 function workflowJobIds(text: string): string[] {
     const ids: string[] = [];
@@ -485,13 +514,14 @@ function projectRepository(root: string): string | undefined {
 function writeRuntimeContract(context: BuildContext): string | undefined {
     const install = context.config.install;
     const audit = context.config.audit;
-    if (install === undefined && audit === undefined) return undefined;
+    const window = context.config.window;
+    if (install === undefined && audit === undefined && window === undefined) return undefined;
 
     const packageDir = appCliPackageDir(context);
     if (packageDir === undefined) {
         throw new WaeBuildError(
             BUILD_CODES.targetMissing,
-            '`install` or `audit` needs an app CLI package: declare `skills.packages[].cliEntry` or a `build.ts` package with a `bin` entry',
+            '`install`, `audit` or `window` needs an app CLI package: declare `skills.packages[].cliEntry` or a `build.ts` package with a `bin` entry',
             { attempts: ['skills.packages[].cliEntry', 'build.ts.packages'] },
         );
     }
@@ -503,6 +533,9 @@ function writeRuntimeContract(context: BuildContext): string | undefined {
         schema: 'wae.runtime/v0',
         ...(install === undefined ? {} : { install: { shortcutDefault: install.shortcutDefault } }),
         ...(audit === undefined ? {} : { audit: { actor: audit.actor } }),
+        ...(window === undefined
+            ? {}
+            : { window: { policy: resolveWindowPolicy(window), host: windowModeSupport(window.mode) } }),
     };
     fs.writeFileSync(file, `${JSON.stringify(contract, null, 2)}\n`);
     return file;

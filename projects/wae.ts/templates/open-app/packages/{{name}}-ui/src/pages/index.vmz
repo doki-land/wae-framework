@@ -1,97 +1,102 @@
 <template>
     <div class="app-root" data-app="{{name}}">
-        <AppShell brand="{{nameTitle}}" homeHref="/" navLabel="Navigation" activeId="home" :nav="navItems">
-            <div class="vmz-slot-content app-body">
-                <header class="app-head">
-                    <h1>
-                        {{ title }}
-                    </h1>
-                    <p>
-                        {{ lead }}
-                    </p>
-                </header>
+        <div class="app-body">
+            <header class="app-head">
+                <h1>
+                    {{ title }}
+                </h1>
+                <p>
+                    {{ lead }}
+                </p>
+            </header>
 
-                <Card :title="capabilitiesTitle" :description="capabilitiesDesc">
-                    <div class="app-actions">
-                        <Button type="button" :loading="loadingCapabilities" :disabled="loadingCapabilities" @click="loadCapabilities">
-                            {{ capabilitiesLabel }}
-                        </Button>
-                        <Button type="button" variant="secondary" @click="closeWindow">
-                            {{ closeLabel }}
-                        </Button>
-                    </div>
-                    <Alert v-if="error" tone="danger" roleName="alert" :title="errorTitle" :description="error" />
-                    <Alert v-else-if="status" tone="info" roleName="status" :title="statusTitle" :description="status" />
-                    <Empty v-if="!capabilityRows.length && !loadingCapabilities" :title="emptyTitle" :description="emptyDesc" />
-                    <Table v-else :columns="capabilityColumns" :rows="capabilityRows" :hasRowAction="false" />
-                </Card>
+            <Card :title="capabilitiesTitle" :description="capabilitiesDesc">
+                <div class="app-actions">
+                    <Button type="button" :loading="loadingCapabilities" :disabled="loadingCapabilities" @click="loadCapabilities">
+                        {{ capabilitiesLabel }}
+                    </Button>
+                    <Button type="button" variant="secondary" @click="closeWindow">
+                        {{ closeLabel }}
+                    </Button>
+                </div>
+                <Alert v-if="error" tone="danger" roleName="alert" :title="errorTitle" :description="error" />
+                <Alert v-else-if="status" tone="info" roleName="status" :title="statusTitle" :description="status" />
+                <Empty v-if="!capabilityRows.length && !loadingCapabilities" :title="emptyTitle" :description="emptyDesc" />
+                <Table v-else :columns="capabilityColumns" :rows="capabilityRows" :hasRowAction="false" />
+            </Card>
 
-                <Card :title="inspectTitle" :description="inspectDesc">
-                    <Field
-                        :label="rootLabel"
-                        :description="rootDesc"
-                        controlId="app-root"
-                        descriptionId="app-root-desc"
-                        errorId="app-root-err"
-                        describedBy="app-root-desc"
-                        :value="root"
-                        :placeholder="rootPlaceholder"
-                        @input="onRootInput"
-                    />
-                    <div class="app-actions">
-                        <Button type="button" :loading="inspecting" :disabled="inspecting" @click="runInspect">
-                            {{ inspectLabel }}
-                        </Button>
-                    </div>
-                    <div class="app-stats">
-                        <div class="app-stat">
-                            <div class="app-stat__label">
-                                {{ totalLabel }}
-                            </div>
-                            <div class="app-stat__value">
-                                {{ totalText }}
-                            </div>
+            <Card :title="inspectTitle" :description="inspectDesc">
+                <Field
+                    :label="rootLabel"
+                    :description="rootDesc"
+                    controlId="app-root"
+                    descriptionId="app-root-desc"
+                    errorId="app-root-err"
+                    describedBy="app-root-desc"
+                    :value="root"
+                    :placeholder="rootPlaceholder"
+                    @input="onRootInput"
+                />
+                <div class="app-actions">
+                    <Button type="button" :loading="inspecting" :disabled="inspecting" @click="runInspect">
+                        {{ inspectLabel }}
+                    </Button>
+                </div>
+                <div class="app-stats">
+                    <div class="app-stat">
+                        <div class="app-stat__label">
+                            {{ totalLabel }}
                         </div>
-                        <div class="app-stat">
-                            <div class="app-stat__label">
-                                {{ countLabel }}
-                            </div>
-                            <div class="app-stat__value">
-                                {{ countText }}
-                            </div>
+                        <div class="app-stat__value">
+                            {{ totalText }}
                         </div>
                     </div>
-                    <Empty v-if="!entryRows.length && !inspecting" :title="emptyEntriesTitle" :description="emptyEntriesDesc" />
-                    <Table v-else :columns="entryColumns" :rows="entryRows" :hasRowAction="false" />
-                </Card>
-
-                <Card :title="installTitle" :description="installDesc">
-                    <div class="app-actions">
-                        <Button type="button" :loading="planning" :disabled="planning" @click="planInstall">
-                            {{ planInstallLabel }}
-                        </Button>
-                        <Button type="button" variant="secondary" :loading="planning" :disabled="planning" @click="planUninstall">
-                            {{ planUninstallLabel }}
-                        </Button>
+                    <div class="app-stat">
+                        <div class="app-stat__label">
+                            {{ countLabel }}
+                        </div>
+                        <div class="app-stat__value">
+                            {{ countText }}
+                        </div>
                     </div>
-                    <Empty v-if="!planRows.length && !planning" :title="emptyPlanTitle" :description="emptyPlanDesc" />
-                    <Table v-else :columns="planColumns" :rows="planRows" :hasRowAction="false" />
-                </Card>
-            </div>
-        </AppShell>
+                </div>
+                <Empty v-if="!entryRows.length && !inspecting" :title="emptyEntriesTitle" :description="emptyEntriesDesc" />
+                <Table v-else :columns="entryColumns" :rows="entryRows" :hasRowAction="false" />
+            </Card>
+
+            <Card :title="installTitle" :description="installDesc">
+                <div class="app-actions">
+                    <Button type="button" :loading="planning" :disabled="planning" @click="planInstall">
+                        {{ planInstallLabel }}
+                    </Button>
+                    <Button type="button" variant="secondary" :loading="planning" :disabled="planning" @click="planUninstall">
+                        {{ planUninstallLabel }}
+                    </Button>
+                </div>
+                <Empty v-if="!planRows.length && !planning" :title="emptyPlanTitle" :description="emptyPlanDesc" />
+                <Table v-else :columns="planColumns" :rows="planRows" :hasRowAction="false" />
+            </Card>
+        </div>
     </div>
 </template>
 
 <style>
 .app-root {
-    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100vh;
+    overflow: hidden;
 }
 .app-body {
     display: flex;
     flex-direction: column;
+    flex: 1 1 auto;
     gap: var(--vmz-space-4, 1rem);
-    width: min(var(--vmz-layout-max-width, 75rem), calc(100% - (var(--vmz-layout-gutter, 1rem) * 2)));
-    margin: 0 auto;
+    min-width: 0;
+    min-height: 0;
+    padding: var(--vmz-space-4, 1rem);
+    overflow: auto;
 }
 .app-head h1 {
     margin: 0 0 0.35rem;
@@ -146,7 +151,6 @@
 export default class IndexPage {
     title = "{{nameTitle}}";
     lead = "Open-X application skeleton. Capabilities are served by the native core.";
-    navItems = [{ id: "home", title: "Home", href: "/" }];
 
     capabilitiesTitle = "Capabilities";
     capabilitiesDesc = "Availability reported by crates/core. Unsupported or unfinished capabilities fail with structured codes.";

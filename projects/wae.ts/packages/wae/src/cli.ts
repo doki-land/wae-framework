@@ -61,6 +61,8 @@ export type {
     WaeSkillsConfig,
     WaeSkillsPackage,
 } from './config.js';
+export { WAE_WINDOW_CODES, WAE_WINDOW_HOST_SUPPORT, WAE_WINDOW_MODES, resolveWindowPolicy, windowModeSupport } from './window.js';
+export type { WaeChildWindows, WaeSecondLaunch, WaeWindowConfig, WaeWindowHostSupport, WaeWindowMode, WaeWindowPolicy } from './window.js';
 
 /** Build the product CLI (tests may call this directly). */
 export function buildCli() {
