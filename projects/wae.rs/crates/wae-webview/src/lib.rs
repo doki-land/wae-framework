@@ -59,17 +59,23 @@ pub struct OpenOptions {
     pub content_dir: Option<String>,
     /// 未设置 `content_dir` 时直接导航的 URL。
     pub url: Option<String>,
+    /// 接受拖放到窗口的本地文件，并把完整路径推送给页面。
+    ///
+    /// 消息形状固定为 `{"type":"fileDrop","paths":[...]}`，由宿主主动推送。
+    /// Windows 已接线（`WM_DROPFILES`）；macOS / Linux 后端接收字段但本轮不接线，
+    /// 补齐实现时不得更改消息形状。
+    pub accept_file_drop: bool,
 }
 
 impl OpenOptions {
     /// 通过本地内容目录打开。
     pub fn from_content_dir(content_dir: impl Into<String>, title: impl Into<String>) -> Self {
-        Self { title: title.into(), width: 1100, height: 720, content_dir: Some(content_dir.into()), url: None }
+        Self { title: title.into(), width: 1100, height: 720, content_dir: Some(content_dir.into()), url: None, accept_file_drop: false }
     }
 
     /// 直接导航到 URL（逃生舱；优先使用 [`Self::from_content_dir`]）。
     pub fn from_url(url: impl Into<String>, title: impl Into<String>) -> Self {
-        Self { title: title.into(), width: 1100, height: 720, content_dir: None, url: Some(url.into()) }
+        Self { title: title.into(), width: 1100, height: 720, content_dir: None, url: Some(url.into()), accept_file_drop: false }
     }
 }
 
@@ -105,6 +111,8 @@ pub enum Capability {
     Close,
     /// 恢复并前置已打开的窗口（单实例二次启动唤醒）。
     Focus,
+    /// 接收拖放到窗口的本地文件并把完整路径推送给页面。
+    FileDrop,
 }
 
 /// 编译目标平台。
@@ -339,10 +347,12 @@ mod tests {
         assert_eq!(from_dir.height, 720);
         assert_eq!(from_dir.content_dir.as_deref(), Some("dist"));
         assert!(from_dir.url.is_none());
+        assert!(!from_dir.accept_file_drop);
 
         let from_url = OpenOptions::from_url("https://example.com", "App");
         assert!(from_url.content_dir.is_none());
         assert_eq!(from_url.url.as_deref(), Some("https://example.com"));
+        assert!(!from_url.accept_file_drop);
     }
 
     #[test]

@@ -35,6 +35,15 @@ fn shell_surface_matches_all_desktop_targets() {
     let _: fn(&std::path::Path) -> std::result::Result<(), wae::shell::ShellError> = wae::shell::open_path;
 }
 
+/// `accept_file_drop` 与 `Capability::FileDrop` 在三 target 上同形状存在。
+#[test]
+fn file_drop_contract_matches_all_desktop_targets() {
+    let options = OpenOptions::from_content_dir("dist", "App");
+    let _: bool = options.accept_file_drop;
+    let error = wae::webview::WebViewError::unsupported(Capability::FileDrop, current_platform());
+    assert_eq!(error.capability(), Some(Capability::FileDrop));
+}
+
 #[test]
 fn unsupported_error_carries_capability_and_platform() {
     let error = WebViewError::unsupported(Capability::MessageChannel, current_platform());

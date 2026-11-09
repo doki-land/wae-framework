@@ -27,8 +27,8 @@ use webview2_com::{
         COREWEBVIEW2_WEB_ERROR_STATUS_UNEXPECTED_ERROR, COREWEBVIEW2_WEB_ERROR_STATUS_UNKNOWN,
         COREWEBVIEW2_WEB_ERROR_STATUS_VALID_AUTHENTICATION_CREDENTIALS_REQUIRED,
         COREWEBVIEW2_WEB_ERROR_STATUS_VALID_PROXY_AUTHENTICATION_REQUIRED, CreateCoreWebView2EnvironmentWithOptions,
-        GetAvailableCoreWebView2BrowserVersionString, ICoreWebView2, ICoreWebView2_3, ICoreWebView2Controller, ICoreWebView2Environment,
-        ICoreWebView2EnvironmentOptions,
+        GetAvailableCoreWebView2BrowserVersionString, ICoreWebView2, ICoreWebView2_3, ICoreWebView2Controller, ICoreWebView2Controller4,
+        ICoreWebView2Environment, ICoreWebView2EnvironmentOptions,
     },
     NavigationCompletedEventHandler, NavigationStartingEventHandler, WebMessageReceivedEventHandler, wait_with_pump,
 };
@@ -43,13 +43,14 @@ use windows::{
         },
         UI::{
             Input::KeyboardAndMouse::VK_F12,
+            Shell::{DragAcceptFiles, DragFinish, DragQueryFileW, HDROP},
             WindowsAndMessaging::{
                 CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GWLP_USERDATA, GetClientRect,
                 GetWindowLongPtrW, ICON_BIG, ICON_SMALL, IDC_ARROW, IMAGE_ICON, IsIconic, IsWindow, LR_LOADFROMFILE, LoadCursorW, LoadImageW,
                 MSG, PM_REMOVE, PeekMessageW, PostMessageW, PostQuitMessage, RegisterClassW, SW_RESTORE, SW_SHOW, SW_SHOWNORMAL,
                 SWP_NOACTIVATE, SWP_NOZORDER, SendMessageW, SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, ShowWindow, TranslateMessage,
-                WINDOW_EX_STYLE, WM_CLOSE, WM_CREATE, WM_DESTROY, WM_DPICHANGED, WM_KEYDOWN, WM_QUIT, WM_SETICON, WM_SIZE, WNDCLASSW,
-                WS_OVERLAPPEDWINDOW,
+                WINDOW_EX_STYLE, WM_CLOSE, WM_CREATE, WM_DESTROY, WM_DPICHANGED, WM_DROPFILES, WM_KEYDOWN, WM_QUIT, WM_SETICON, WM_SIZE,
+                WNDCLASSW, WS_OVERLAPPEDWINDOW,
             },
         },
     },
@@ -240,6 +241,29 @@ fn encode_wide(value: &str) -> Vec<u16> {
     OsStr::new(value).encode_wide().chain(std::iter::once(0)).collect()
 }
 
+/// 从 `WM_DROPFILES` 的 `HDROP` 句柄取出全部完整本地路径。
+fn dropped_paths(hdrop: HDROP) -> Vec<String> {
+    let mut paths = Vec::new();
+    unsafe {
+        let count = DragQueryFileW(hdrop, u32::MAX, None);
+        paths.reserve(count as usize);
+        for index in 0..count {
+            let length = DragQueryFileW(hdrop, index, None);
+            if length == 0 {
+                continue;
+            }
+            let mut buffer = vec![0u16; length as usize + 1];
+            let written = DragQueryFileW(hdrop, index, Some(buffer.as_mut_slice()));
+            if written == 0 {
+                continue;
+            }
+            buffer.truncate(written as usize);
+            paths.push(String::from_utf16_lossy(&buffer));
+        }
+    }
+    paths
+}
+
 /// 从内容目录读取 `app.ico` 并设为窗口图标（标题栏与任务栏）。文件缺失时静默跳过，
 /// 保持无图标而非报错。宿主此前从不 `WM_SETICON`，窗口左上角因此一直是空白。
 fn apply_window_icon(hwnd: HWND, content_dir: Option<&str>) {
@@ -302,6 +326,18 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
             }
             WM_WAE_IPC => {
                 state.dispatch_ipc();
+                LRESULT(0)
+            }
+            WM_DROPFILES => {
+                let hdrop = HDROP(lparam.0 as *mut c_void);
+                let paths = dropped_paths(hdrop);
+                DragFinish(hdrop);
+                if !paths.is_empty() {
+                    let json = serde_json::json!({ "type": "fileDrop", "paths": paths }).to_string();
+                    if let Err(error) = state.post_message(&json) {
+                        dpi::diag(format!("fileDrop.post_failed {error}"));
+                    }
+                }
                 LRESULT(0)
             }
             // 启动后键盘焦点停在顶层窗口（WebView2 子窗口未取得焦点），
@@ -436,6 +472,19 @@ fn create_controller(hwnd: HWND, environment: &ICoreWebView2Environment) -> Resu
 
 fn attach_webview(state: *mut DesktopState, controller: ICoreWebView2Controller) -> Result<()> {
     let webview = unsafe { controller.CoreWebView2().map_err(|e| host_failure("webview2_controller_failed", "read_core_webview", &e))? };
+
+    // 拖放走宿主 `WM_DROPFILES` 才能拿到完整本地路径；Chromium 自身吞掉 drop 时
+    // 页面只能看到文件名。关掉外部 drop 失败不阻断开窗，旧 Runtime 降级为默认行为。
+    if unsafe { (*state).options.accept_file_drop } {
+        match controller.cast::<ICoreWebView2Controller4>() {
+            Ok(controller4) => {
+                if let Err(error) = unsafe { controller4.SetAllowExternalDrop(false) } {
+                    dpi::diag(format!("external_drop.disable_failed hresult={:#x}", error.code().0));
+                }
+            }
+            Err(error) => dpi::diag(format!("external_drop.interface_missing hresult={:#x}", error.code().0)),
+        }
+    }
 
     let state_addr = state as usize;
     let mut token = EventRegistrationToken::default();
@@ -841,6 +890,9 @@ impl WebViewBackend for Win32Backend {
 
             box_state.hwnd = hwnd;
             apply_window_icon(hwnd, box_state.options.content_dir.as_deref());
+            if box_state.options.accept_file_drop {
+                DragAcceptFiles(hwnd, true);
+            }
             dpi::diag(format!(
                 "dpi.window created hwnd={hwnd:?} awareness={} window_dpi={} requested_physical={width}x{height}",
                 awareness.name(),
