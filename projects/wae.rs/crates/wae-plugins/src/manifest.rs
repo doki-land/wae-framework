@@ -533,7 +533,7 @@ fn validate_applies_to(applies_to: &[String], apps: &[&str]) -> Result<(), Plugi
         if !seen.insert(app.as_str()) {
             return Err(manifest_invalid("applies_to_duplicate", format!("`appliesTo` repeats `{app}`")));
         }
-        if !apps.iter().any(|known| *known == app.as_str()) {
+        if !apps.contains(&app.as_str()) {
             return Err(manifest_invalid("app_unknown", format!("`appliesTo` declares unknown application `{app}`")));
         }
     }
@@ -551,7 +551,7 @@ fn validate_rule(rule: &Rule, context: &PackContext<'_>) -> Result<(), PluginErr
             format!("rule id `{}` uses the reserved `{BUILTIN_NAMESPACE}` namespace", rule.id),
         ));
     }
-    if context.builtin_rule_ids.iter().any(|id| *id == rule.id.as_str()) {
+    if context.builtin_rule_ids.contains(&rule.id.as_str()) {
         return Err(PluginError::new(
             ErrorCode::RuleConflict,
             "builtin_rule_duplicate",
@@ -564,7 +564,7 @@ fn validate_rule(rule: &Rule, context: &PackContext<'_>) -> Result<(), PluginErr
     if rule.domain.trim().is_empty() {
         return Err(manifest_invalid("empty_domain", format!("rule `{}` must declare a domain", rule.id)));
     }
-    if !context.domains.iter().any(|domain| *domain == rule.domain.as_str()) {
+    if !context.domains.contains(&rule.domain.as_str()) {
         return Err(PluginError::new(
             ErrorCode::DomainUnsupported,
             "domain_unknown",
