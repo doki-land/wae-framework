@@ -3,7 +3,12 @@ use std::{
     ffi::{OsStr, c_void},
     os::windows::ffi::OsStrExt,
     path::Path,
-    sync::{Mutex, mpsc},
+    sync::{
+        Mutex,
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    },
+    time::{Duration, Instant},
 };
 
 use webview2_com::{
@@ -42,7 +47,7 @@ use windows::{
                 GetWindowLongPtrW, IDC_ARROW, IsIconic, IsWindow, LoadCursorW, MSG, PM_REMOVE, PeekMessageW, PostMessageW, PostQuitMessage,
                 RegisterClassW, SW_RESTORE, SW_SHOW, SW_SHOWNORMAL, SWP_NOACTIVATE, SWP_NOZORDER, SetForegroundWindow, SetWindowLongPtrW,
                 SetWindowPos, ShowWindow, TranslateMessage, WINDOW_EX_STYLE, WM_CLOSE, WM_CREATE, WM_DESTROY, WM_DPICHANGED, WM_KEYDOWN,
-                WM_QUIT, WM_SIZE, WNDCLASSW, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+                WM_QUIT, WM_SIZE, WNDCLASSW, WS_OVERLAPPEDWINDOW,
             },
         },
     },
@@ -59,6 +64,9 @@ const WM_WAE_IPC: u32 = windows::Win32::UI::WindowsAndMessaging::WM_APP + 1;
 const VIRTUAL_HOST: &str = "app.local";
 /// 回退时携带原始路由的查询参数名，由前置脚本在页面脚本运行前消费。
 const SPA_ROUTE_PARAM: &str = "__wae_route";
+/// 延迟显窗的兜底时限：超过该时长首屏导航仍未完成也先把窗口显示出来，
+/// 避免「进程活着但看不见窗口」；宁可短暂白屏，不要隐形窗口。
+const REVEAL_TIMEOUT: Duration = Duration::from_secs(5);
 
 struct DesktopState {
     options: OpenOptions,
@@ -70,9 +78,30 @@ struct DesktopState {
     /// 最近一次导航失败的结构化错误，用于退出时复述并解释白屏。
     navigation_error: Mutex<Option<WebViewError>>,
     alive: bool,
+    /// 窗口是否已显示。窗口以隐藏状态创建，首次真实导航完成或超时兜底时显示，
+    /// 避免 WebView2 浏览器进程冷启动期间用户对着纯白窗口。
+    revealed: AtomicBool,
+    /// `open()` 完成挂载的时刻，`pump()` 据此做 [`REVEAL_TIMEOUT`] 兜底显窗。
+    open_started: Instant,
 }
 
 impl DesktopState {
+    /// 首次调用把隐藏窗口显示出来并抢前台，之后为幂等空操作。
+    fn reveal_once(&self, trigger: &str) {
+        if self.revealed.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        unsafe {
+            // Windows 只让第一次 ShowWindow 使用启动信息里的显示状态，隐藏或最小化启动
+            // （安装器、快捷方式、按 SW_SHOWMINNOACTIVE 启动的桥接进程）会把窗口留在
+            // 不可见状态。第二次调用仍使用传入的 nCmdShow，保证窗口真正显示出来。
+            let _ = ShowWindow(self.hwnd, SW_SHOW);
+            let _ = ShowWindow(self.hwnd, SW_SHOWNORMAL);
+            let _ = SetForegroundWindow(self.hwnd);
+        }
+        dpi::diag(format!("window.reveal trigger={trigger}"));
+    }
+
     fn dispatch_ipc(&mut self) {
         let message = {
             let mut guard = self.pending_ipc.lock().expect("ipc lock");
@@ -413,6 +442,12 @@ fn attach_webview(state: *mut DesktopState, controller: ICoreWebView2Controller)
         let url = unsafe { sender.Source(&mut source) }.ok().and_then(|()| unsafe { source.to_string() }.ok()).unwrap_or_default();
         let desktop = unsafe { &*(state_addr as *const DesktopState) };
         desktop.report_navigation(success.as_bool(), status, &url);
+        // 延迟显窗：首次「真实」导航完成才显示窗口。`about:blank` 的初始文档
+        // 与 SPA 回退主动取消的导航不算真实完成，显示它们只会重新露出白屏；
+        // 导航失败（非取消）也要显示，否则用户看不到错误页。
+        if url != "about:blank" && status != COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED {
+            desktop.reveal_once("navigation");
+        }
         Ok(())
     }));
 
@@ -741,13 +776,15 @@ impl WebViewBackend for Win32Backend {
                 pending_ipc: Mutex::new(VecDeque::new()),
                 navigation_error: Mutex::new(None),
                 alive: true,
+                revealed: AtomicBool::new(false),
+                open_started: Instant::now(),
             });
 
             let hwnd = CreateWindowExW(
                 WINDOW_EX_STYLE(0),
                 class_name,
                 PCWSTR(title.as_ptr()),
-                WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+                WS_OVERLAPPEDWINDOW,
                 origin,
                 origin,
                 width,
@@ -765,12 +802,9 @@ impl WebViewBackend for Win32Backend {
                 awareness.name(),
                 dpi::window_dpi(hwnd),
             ));
-            // Windows 只让第一次 ShowWindow 使用启动信息里的显示状态，隐藏或最小化启动
-            // （安装器、快捷方式、按 SW_SHOWMINNOACTIVE 启动的桥接进程）会把窗口留在
-            // 不可见状态。第二次调用仍使用传入的 nCmdShow，保证窗口真正显示出来。
-            let _ = ShowWindow(hwnd, SW_SHOW);
-            let _ = ShowWindow(hwnd, SW_SHOWNORMAL);
-            let _ = SetForegroundWindow(hwnd);
+            // 窗口以隐藏状态创建：WebView2 环境、controller 与首屏导航完成前，
+            // 显示出来的只会是一块纯白窗口。显窗由 DesktopState::reveal_once 在
+            // 首次真实导航完成时执行，pump() 里有 REVEAL_TIMEOUT 兜底。
 
             let environment = create_environment()?;
             let controller = create_controller(hwnd, &environment)?;
@@ -836,6 +870,12 @@ impl WebViewBackend for Win32Backend {
             }
         }
 
+        // 兜底显窗：导航迟迟不完成（网络挂起、页面永不触发完成事件）也要在
+        // 超时后把窗口亮出来，用户至少能看见窗口并自行关闭。
+        if !self.state.revealed.load(Ordering::SeqCst) && self.state.open_started.elapsed() >= REVEAL_TIMEOUT {
+            self.state.reveal_once("timeout");
+        }
+
         self.state.alive && !self.quit
     }
 
@@ -872,9 +912,12 @@ impl WebViewBackend for Win32Backend {
             if IsIconic(hwnd).as_bool() {
                 let _ = ShowWindow(hwnd, SW_RESTORE);
             }
-            let _ = ShowWindow(hwnd, SW_SHOW);
+            // 已显示的窗口只抢前台；`reveal_once` 对已显示窗口是空操作。
             let _ = SetForegroundWindow(hwnd);
         }
+        // 二实例聚焦：窗口尚未显示（首屏仍在加载）时同样走显窗路径，
+        // 并保持 `revealed` 同步，避免超时兜底重复显窗。
+        self.state.reveal_once("focus");
         Ok(())
     }
 }
