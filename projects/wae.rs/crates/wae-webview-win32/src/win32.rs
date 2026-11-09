@@ -12,8 +12,8 @@ use std::{
 };
 
 use webview2_com::{
-    AcceleratorKeyPressedEventHandler, AddScriptToExecuteOnDocumentCreatedCompletedHandler, CreateCoreWebView2ControllerCompletedHandler,
-    CreateCoreWebView2EnvironmentCompletedHandler,
+    AcceleratorKeyPressedEventHandler, AddScriptToExecuteOnDocumentCreatedCompletedHandler, CoreWebView2EnvironmentOptions,
+    CreateCoreWebView2ControllerCompletedHandler, CreateCoreWebView2EnvironmentCompletedHandler,
     Microsoft::Web::WebView2::Win32::{
         COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW, COREWEBVIEW2_KEY_EVENT_KIND, COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN,
         COREWEBVIEW2_WEB_ERROR_STATUS, COREWEBVIEW2_WEB_ERROR_STATUS_CANNOT_CONNECT,
@@ -28,6 +28,7 @@ use webview2_com::{
         COREWEBVIEW2_WEB_ERROR_STATUS_VALID_AUTHENTICATION_CREDENTIALS_REQUIRED,
         COREWEBVIEW2_WEB_ERROR_STATUS_VALID_PROXY_AUTHENTICATION_REQUIRED, CreateCoreWebView2EnvironmentWithOptions,
         GetAvailableCoreWebView2BrowserVersionString, ICoreWebView2, ICoreWebView2_3, ICoreWebView2Controller, ICoreWebView2Environment,
+        ICoreWebView2EnvironmentOptions,
     },
     NavigationCompletedEventHandler, NavigationStartingEventHandler, WebMessageReceivedEventHandler, wait_with_pump,
 };
@@ -358,11 +359,18 @@ fn webview2_runtime_version() -> Result<String> {
 fn create_environment() -> Result<ICoreWebView2Environment> {
     let _ = webview2_runtime_version()?;
     let (tx, rx) = mpsc::channel();
+    // VM / RDP 会话里 Chromium 的窗口遮挡检测会把窗口误判为完全遮挡，暂停合成，
+    // 窗口显示后永远白屏。禁用 `CalculateNativeWinOcclusion` 是官方 workaround。
+    let options = CoreWebView2EnvironmentOptions::default();
+    unsafe {
+        options.set_additional_browser_arguments("--disable-features=CalculateNativeWinOcclusion".to_string());
+    }
+    let options: ICoreWebView2EnvironmentOptions = options.into();
     unsafe {
         CreateCoreWebView2EnvironmentWithOptions(
             PCWSTR::null(),
             PCWSTR::null(),
-            None,
+            Some(&options),
             &CreateCoreWebView2EnvironmentCompletedHandler::create(Box::new(move |error_code, environment| {
                 error_code?;
                 tx.send(environment.ok_or_else(|| windows::core::Error::from(E_POINTER))).map_err(|_| windows::core::Error::from(E_UNEXPECTED))
