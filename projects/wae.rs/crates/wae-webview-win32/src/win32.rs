@@ -45,10 +45,11 @@ use windows::{
             Input::KeyboardAndMouse::VK_F12,
             WindowsAndMessaging::{
                 CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GWLP_USERDATA, GetClientRect,
-                GetWindowLongPtrW, IDC_ARROW, IsIconic, IsWindow, LoadCursorW, MSG, PM_REMOVE, PeekMessageW, PostMessageW, PostQuitMessage,
-                RegisterClassW, SW_RESTORE, SW_SHOW, SW_SHOWNORMAL, SWP_NOACTIVATE, SWP_NOZORDER, SetForegroundWindow, SetWindowLongPtrW,
-                SetWindowPos, ShowWindow, TranslateMessage, WINDOW_EX_STYLE, WM_CLOSE, WM_CREATE, WM_DESTROY, WM_DPICHANGED, WM_KEYDOWN,
-                WM_QUIT, WM_SIZE, WNDCLASSW, WS_OVERLAPPEDWINDOW,
+                GetWindowLongPtrW, ICON_BIG, ICON_SMALL, IDC_ARROW, IMAGE_ICON, IsIconic, IsWindow, LR_LOADFROMFILE, LoadCursorW, LoadImageW,
+                MSG, PM_REMOVE, PeekMessageW, PostMessageW, PostQuitMessage, RegisterClassW, SW_RESTORE, SW_SHOW, SW_SHOWNORMAL,
+                SWP_NOACTIVATE, SWP_NOZORDER, SendMessageW, SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, ShowWindow, TranslateMessage,
+                WINDOW_EX_STYLE, WM_CLOSE, WM_CREATE, WM_DESTROY, WM_DPICHANGED, WM_KEYDOWN, WM_QUIT, WM_SETICON, WM_SIZE, WNDCLASSW,
+                WS_OVERLAPPEDWINDOW,
             },
         },
     },
@@ -99,6 +100,17 @@ impl DesktopState {
             let _ = ShowWindow(self.hwnd, SW_SHOW);
             let _ = ShowWindow(self.hwnd, SW_SHOWNORMAL);
             let _ = SetForegroundWindow(self.hwnd);
+        }
+        // controller 在隐藏父窗口上创建时，WebView2 合成器保持挂起；只 ShowWindow
+        // 唤不醒它，窗口显示后仍是纯白（VM/RDP 与较新 WebView2 运行时尤其稳定复现）。
+        // 显窗后强制把可见性 false→true 走一遍并复位边界，让合成器重新挂接到已可见的
+        // 父窗口，页面才开始出画面。
+        if let Some(controller) = &self.controller {
+            unsafe {
+                let _ = controller.SetIsVisible(false);
+                let _ = controller.SetIsVisible(true);
+            }
+            self.resize_webview();
         }
         dpi::diag(format!("window.reveal trigger={trigger}"));
     }
@@ -226,6 +238,29 @@ impl DesktopState {
 
 fn encode_wide(value: &str) -> Vec<u16> {
     OsStr::new(value).encode_wide().chain(std::iter::once(0)).collect()
+}
+
+/// 从内容目录读取 `app.ico` 并设为窗口图标（标题栏与任务栏）。文件缺失时静默跳过，
+/// 保持无图标而非报错。宿主此前从不 `WM_SETICON`，窗口左上角因此一直是空白。
+fn apply_window_icon(hwnd: HWND, content_dir: Option<&str>) {
+    let Some(dir) = content_dir
+    else {
+        return;
+    };
+    let candidate = Path::new(dir).join("app.ico");
+    if !candidate.is_file() {
+        return;
+    }
+    let path_w = encode_wide(&candidate.display().to_string());
+    unsafe {
+        let name = PCWSTR(path_w.as_ptr());
+        if let Ok(icon) = LoadImageW(None, name, IMAGE_ICON, 16, 16, LR_LOADFROMFILE) {
+            let _ = SendMessageW(hwnd, WM_SETICON, Some(WPARAM(ICON_SMALL as usize)), Some(LPARAM(icon.0 as isize)));
+        }
+        if let Ok(icon) = LoadImageW(None, name, IMAGE_ICON, 32, 32, LR_LOADFROMFILE) {
+            let _ = SendMessageW(hwnd, WM_SETICON, Some(WPARAM(ICON_BIG as usize)), Some(LPARAM(icon.0 as isize)));
+        }
+    }
 }
 
 unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
@@ -805,6 +840,7 @@ impl WebViewBackend for Win32Backend {
             .map_err(|e| host_failure("window_create_failed", "create_window", &e).with_attempted(vec![format!("class={}", VIRTUAL_HOST)]))?;
 
             box_state.hwnd = hwnd;
+            apply_window_icon(hwnd, box_state.options.content_dir.as_deref());
             dpi::diag(format!(
                 "dpi.window created hwnd={hwnd:?} awareness={} window_dpi={} requested_physical={width}x{height}",
                 awareness.name(),
