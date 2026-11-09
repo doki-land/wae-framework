@@ -29,6 +29,12 @@ fn facade_symbols_exist_with_stable_signatures() {
     let _: fn() -> Platform = current_platform;
 }
 
+/// shell 门面在三个桌面 target 上同一签名，下游不得平台分叉。
+#[test]
+fn shell_surface_matches_all_desktop_targets() {
+    let _: fn(&std::path::Path) -> std::result::Result<(), wae::shell::ShellError> = wae::shell::open_path;
+}
+
 #[test]
 fn unsupported_error_carries_capability_and_platform() {
     let error = WebViewError::unsupported(Capability::MessageChannel, current_platform());

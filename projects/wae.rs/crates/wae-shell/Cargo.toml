@@ -1,0 +1,19 @@
+[package]
+name = "wae-shell"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "用系统关联程序启动文件（三平台统一门面，无第三方 launcher）"
+publish = false
+
+[dependencies]
+wae-webview = { path = "../wae-webview" }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }

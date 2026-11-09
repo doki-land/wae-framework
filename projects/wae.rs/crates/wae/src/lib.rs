@@ -82,6 +82,20 @@ pub mod webview {
     compile_error!("`wae::webview` 只支持 Windows / macOS / Linux；其它目标没有 WebView 后端");
 }
 
+/// `wae::shell`：用系统关联程序启动文件（feature `shell`，默认开启）。
+///
+/// 三个桌面平台同一签名 `open_path(&Path) -> Result<(), ShellError>`；
+/// 失败按 [`ShellError`] 字段判别，下游不得写平台 `cfg`、不得匹配错误字符串。
+/// 调用方应只传入自己产出的真实文件路径（如 OpenZipper 的临时预览文件）。
+///
+/// ```ignore
+/// wae::shell::open_path(std::path::Path::new(&temp_file))?;
+/// ```
+#[cfg(feature = "shell")]
+pub mod shell {
+    pub use wae_shell::{ShellError, open_path};
+}
+
 /// `wae::audit`：审计记录设施与 napi 复用入口（feature `audit`，默认开启）。
 ///
 /// 所有调用都必须可归因到具体 `user` 或 `agent`。应用只补领域字段（能力名、参数、
