@@ -339,10 +339,6 @@ impl WebViewBackend for LinuxBackend {
         }
         Ok(())
     }
-
-    fn is_alive(&self) -> bool {
-        self.shared.alive.load(Ordering::SeqCst)
-    }
 }
 
 impl Drop for LinuxBackend {
