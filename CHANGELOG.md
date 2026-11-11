@@ -1,6 +1,19 @@
 # Changelog
 
-## 0.0.5（待发布）
+## 0.0.6
+
+- `wae.config.ts` 支持显式窗口策略 `window.mode`（`single` / `independent` / `primary-secondary`）与 `secondLaunch`，`wae build` 在宿主不支持的模式上以 `window_mode_unsupported` 失败，不再静默降级。`wae new` 生成的工程默认声明 `single` + `focus`。
+- 新增 `wae-plugins` 宿主：严格解析 `plugin.json`，集中插件错误码，收窄作用域，并为候选处置附加归因与证据。
+- WebView 宿主：首次导航完成后才显示窗口，设置窗口图标，关闭 WebView2 occlusion，并在宿主合同中加入窗口聚焦。
+- 新增 `wae-shell`，用系统默认程序打开文件。
+- Win32 文件拖放经 `accept_file_drop` 路由到页面。
+- 修复 Linux 后端重复 `is_alive` 导致的构建失败，插件清单校验改用 `contains` 判断切片成员。
+
+### 从 0.0.5 升级
+
+把工程根 `devDependencies` 的 `@wae/wae` 与子包 `dependencies` 的 `@wae/commander` 一起改为 `0.0.6`，执行 `pnpm install` 后重新构建。需要显式窗口策略的工程可以补上 `window` 键。也可以直接重新运行 `wae new` 生成新工程。
+
+## 0.0.5
 
 - 修复 pnpm 符号链接下 CLI 入口守卫失效：`wae build` 不再退出 0 却没有任何产物。入口文件无法解析到自身时改为非零退出并打印诊断，不再静默成功。
 - 生成工程的 `@wae/wae` / `@wae/commander` 依赖改由 `wae new` 写入当前 CLI 版本（精确版本），模板不再保存手写的旧版本或 `0.0.0` 占位版本。
