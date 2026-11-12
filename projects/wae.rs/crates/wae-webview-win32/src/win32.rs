@@ -16,7 +16,7 @@ use webview2_com::{
     CreateCoreWebView2ControllerCompletedHandler, CreateCoreWebView2EnvironmentCompletedHandler,
     Microsoft::Web::WebView2::Win32::{
         COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW, COREWEBVIEW2_KEY_EVENT_KIND, COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN,
-        COREWEBVIEW2_WEB_ERROR_STATUS, COREWEBVIEW2_WEB_ERROR_STATUS_CANNOT_CONNECT,
+        COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC, COREWEBVIEW2_WEB_ERROR_STATUS, COREWEBVIEW2_WEB_ERROR_STATUS_CANNOT_CONNECT,
         COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_COMMON_NAME_IS_INCORRECT, COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_EXPIRED,
         COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_IS_INVALID, COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_REVOKED,
         COREWEBVIEW2_WEB_ERROR_STATUS_CLIENT_CERTIFICATE_CONTAINS_ERRORS, COREWEBVIEW2_WEB_ERROR_STATUS_CONNECTION_ABORTED,
@@ -49,8 +49,8 @@ use windows::{
                 GetWindowLongPtrW, ICON_BIG, ICON_SMALL, IDC_ARROW, IMAGE_ICON, IsIconic, IsWindow, LR_LOADFROMFILE, LoadCursorW, LoadImageW,
                 MSG, PM_REMOVE, PeekMessageW, PostMessageW, PostQuitMessage, RegisterClassW, SW_RESTORE, SW_SHOW, SW_SHOWNORMAL,
                 SWP_NOACTIVATE, SWP_NOZORDER, SendMessageW, SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, ShowWindow, TranslateMessage,
-                WINDOW_EX_STYLE, WM_CLOSE, WM_CREATE, WM_DESTROY, WM_DPICHANGED, WM_DROPFILES, WM_KEYDOWN, WM_QUIT, WM_SETICON, WM_SIZE,
-                WNDCLASSW, WS_OVERLAPPEDWINDOW,
+                WINDOW_EX_STYLE, WM_ACTIVATE, WM_CLOSE, WM_CREATE, WM_DESTROY, WM_DPICHANGED, WM_DROPFILES, WM_KEYDOWN, WM_QUIT, WM_SETICON,
+                WM_SIZE, WNDCLASSW, WS_OVERLAPPEDWINDOW,
             },
         },
     },
@@ -304,6 +304,21 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
         let state = &mut *state_ptr;
 
         match msg {
+            // `WM_MOUSEWHEEL` 与键盘输入只发给「拥有焦点的窗口」。WebView2 不会在宿主
+            // 窗口激活时自动把焦点移进网页内容：不处理激活的话，焦点留在顶层 frame
+            // （`GetGUIThreadInfo` 实测 `hwndFocus=null`），滚轮消息被 `DefWindowProcW`
+            // 丢弃，页面无法滚动。按官方样例在激活时把焦点移进内容；`PROGRAMMATIC`
+            // 会恢复页面内上次聚焦的元素，不会重置光标位置。
+            WM_ACTIVATE => {
+                if (wparam.0 & 0xFFFF) != 0 {
+                    if let Some(controller) = state.controller.as_ref() {
+                        if let Err(error) = controller.MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC) {
+                            dpi::diag(format!("move_focus.failed hresult={:#x}", error.code().0));
+                        }
+                    }
+                }
+                DefWindowProcW(hwnd, msg, wparam, lparam)
+            }
             WM_SIZE => {
                 state.resize_webview();
                 LRESULT(0)
