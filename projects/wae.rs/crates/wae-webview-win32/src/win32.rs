@@ -306,10 +306,12 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
         match msg {
             // `WM_MOUSEWHEEL` 与键盘输入只发给「拥有焦点的窗口」。WebView2 不会在宿主
             // 窗口激活时自动把焦点移进网页内容：不处理激活的话，焦点留在顶层 frame
-            // （`GetGUIThreadInfo` 实测 `hwndFocus=null`），滚轮消息被 `DefWindowProcW`
-            // 丢弃，页面无法滚动。按官方样例在激活时把焦点移进内容；`PROGRAMMATIC`
-            // 会恢复页面内上次聚焦的元素，不会重置光标位置。
+            // （`GetGUIThreadInfo` 实测 `hwndFocus` 为 frame 或 null），滚轮消息被
+            // `DefWindowProcW` 丢弃，页面无法滚动。先让 `DefWindowProcW` 完成默认激活
+            // （否则焦点会被它抢回 frame），再把焦点移进内容；`PROGRAMMATIC` 会恢复
+            // 页面内上次聚焦的元素，不会重置光标位置。
             WM_ACTIVATE => {
+                let result = DefWindowProcW(hwnd, msg, wparam, lparam);
                 if (wparam.0 & 0xFFFF) != 0 {
                     if let Some(controller) = state.controller.as_ref() {
                         if let Err(error) = controller.MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC) {
@@ -317,7 +319,7 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
                         }
                     }
                 }
-                DefWindowProcW(hwnd, msg, wparam, lparam)
+                result
             }
             WM_SIZE => {
                 state.resize_webview();
