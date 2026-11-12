@@ -18,14 +18,14 @@ fn main() {
         time::{Duration, Instant},
     };
 
-    use wae_webview::{IpcHandler, IpcOutcome, OpenOptions, WebViewBackend};
+    use wae_webview::{IpcHandler, IpcOutcome, IpcSink, OpenOptions, WebViewBackend};
     use wae_webview_win32::Win32Backend;
     use windows::Win32::UI::HiDpi::{DPI_AWARENESS_CONTEXT_UNAWARE, SetProcessDpiAwarenessContext};
 
     struct PrintHandler;
 
     impl IpcHandler for PrintHandler {
-        fn on_ipc(&mut self, message: &str) -> IpcOutcome {
+        fn on_ipc(&mut self, message: &str, _sink: &IpcSink) -> IpcOutcome {
             eprintln!("[wae-dpi-probe] page={message}");
             IpcOutcome::Ignored
         }

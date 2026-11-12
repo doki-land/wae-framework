@@ -16,7 +16,7 @@ use {{nameSnake}}_core::{
 use serde_json::{Value, json};
 use wae::{
     CallContext, Error, JsValue, Result, function, optional_string_prop, register_module,
-    webview::{IpcHandler, IpcOutcome, OpenOptions, WebViewError, open},
+    webview::{IpcHandler, IpcOutcome, IpcSink, OpenOptions, WebViewError, open},
 };
 
 mod audit;
@@ -34,7 +34,7 @@ thread_local! {
 struct HostIpc;
 
 impl IpcHandler for HostIpc {
-    fn on_ipc(&mut self, message: &str) -> IpcOutcome {
+    fn on_ipc(&mut self, message: &str, _sink: &IpcSink) -> IpcOutcome {
         let Ok(request) = serde_json::from_str::<Value>(message)
         else {
             return IpcOutcome::ReplyToPage(r#"{"ok":false,"error":"invalid json"}"#.to_string());

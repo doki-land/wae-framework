@@ -46,7 +46,7 @@ pub use wae_macros::{function, register_module};
 /// ```
 #[cfg(feature = "webview")]
 pub mod webview {
-    pub use wae_webview::{Capability, IpcHandler, IpcOutcome, OpenOptions, Platform, Result, WebViewError};
+    pub use wae_webview::{Capability, IpcHandler, IpcOutcome, IpcSink, OpenOptions, Platform, Result, WebViewError};
 
     /// 当前编译目标对应的平台，供结构化错误与诊断使用。
     pub fn current_platform() -> Platform {

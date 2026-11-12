@@ -1,7 +1,7 @@
 //! macOS WKWebView 实现：`NSWindow` + `WKWebView`，消息通道为
 //! `window.webkit.messageHandlers.wae`，宿主回投调用 `window.__waeReceive`。
 
-use std::{collections::VecDeque, sync::Mutex};
+use std::sync::mpsc;
 
 use objc2::{
     DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send,
@@ -14,10 +14,20 @@ use objc2_app_kit::{
 };
 use objc2_foundation::{NSDate, NSDefaultRunLoopMode, NSPoint, NSRect, NSSize, NSString, NSURL, NSURLRequest};
 use objc2_web_kit::{WKScriptMessage, WKScriptMessageHandler, WKUserContentController, WKWebView, WKWebViewConfiguration};
-use wae_webview::{IpcHandler, IpcOutcome, MESSAGE_HANDLER_NAME, OpenOptions, Result, WebViewBackend, WebViewError, page_receive_script};
+use wae_webview::{
+    IpcHandler, IpcOutcome, IpcSink, MESSAGE_HANDLER_NAME, OpenOptions, Result, WebViewBackend, WebViewError, page_receive_script,
+};
+
+/// worker 线程排给主线程的出站动作；`pump()` 在拥有窗口的线程排空。
+enum Outbound {
+    /// 向页面投递一条消息。
+    Post(String),
+    /// 关闭窗口。
+    Close,
+}
 
 struct IpcIvars {
-    messages: Mutex<VecDeque<String>>,
+    inbox_tx: mpsc::Sender<String>,
 }
 
 define_class!(
@@ -38,21 +48,16 @@ define_class!(
             let Ok(text) = body.downcast::<NSString>() else {
                 return;
             };
-            if let Ok(mut queue) = self.ivars().messages.lock() {
-                queue.push_back(text.to_string());
-            }
+            // 入站消息直接交给 IPC worker 线程；主线程消息循环不再执行处理者。
+            let _ = self.ivars().inbox_tx.send(text.to_string());
         }
     }
 );
 
 impl IpcHandlerObject {
-    fn new(mtm: MainThreadMarker) -> Retained<Self> {
-        let this = Self::alloc(mtm).set_ivars(IpcIvars { messages: Mutex::new(VecDeque::new()) });
+    fn new(mtm: MainThreadMarker, inbox_tx: mpsc::Sender<String>) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(IpcIvars { inbox_tx });
         unsafe { msg_send![super(this), init] }
-    }
-
-    fn take_message(&self) -> Option<String> {
-        self.ivars().messages.lock().ok().and_then(|mut queue| queue.pop_front())
     }
 }
 
@@ -61,23 +66,26 @@ pub struct MacosBackend {
     app: Retained<NSApplication>,
     window: Retained<NSWindow>,
     webview: Retained<WKWebView>,
+    /// 仅用于保活 ObjC 侧消息处理器（入站消息经它的 `inbox_tx` 直达 worker 线程）。
+    #[allow(dead_code)]
     ipc: Retained<IpcHandlerObject>,
-    handler: Box<dyn IpcHandler>,
+    outbox_rx: mpsc::Receiver<Outbound>,
     alive: bool,
 }
 
 impl MacosBackend {
-    fn dispatch_pending(&mut self) {
-        while let Some(message) = self.ipc.take_message() {
-            match self.handler.on_ipc(&message) {
-                IpcOutcome::ReplyToPage(json) => {
+    /// 在主线程排空 IPC worker 与 `IpcSink` 投递的出站动作。
+    fn drain_outbox(&mut self) {
+        loop {
+            match self.outbox_rx.try_recv() {
+                Ok(Outbound::Post(json)) => {
                     let _ = self.post_message(&json);
                 }
-                IpcOutcome::CloseWindow => {
+                Ok(Outbound::Close) => {
                     let _ = self.close();
                     return;
                 }
-                IpcOutcome::Ignored => {}
+                Err(_) => return,
             }
         }
     }
@@ -112,7 +120,9 @@ impl WebViewBackend for MacosBackend {
 
         let config = unsafe { WKWebViewConfiguration::new(mtm) };
         let controller = unsafe { config.userContentController() };
-        let ipc = IpcHandlerObject::new(mtm);
+        let (inbox_tx, inbox_rx) = mpsc::channel::<String>();
+        let (outbox_tx, outbox_rx) = mpsc::channel::<Outbound>();
+        let ipc = IpcHandlerObject::new(mtm, inbox_tx);
         unsafe {
             controller.addScriptMessageHandler_name(objc2::runtime::ProtocolObject::from_ref(&*ipc), &NSString::from_str(MESSAGE_HANDLER_NAME));
         }
@@ -140,7 +150,35 @@ impl WebViewBackend for MacosBackend {
             unsafe { webview.loadRequest(&request) };
         }
 
-        Ok(Self { app, window, webview, ipc, handler, alive: true })
+        // IPC worker 线程：处理者在专用线程执行，主线程消息循环不再被业务阻塞；
+        // 出站动作经 outbox 回到主线程，由 `pump()` 排空投递。
+        let sink = {
+            let tx = outbox_tx.clone();
+            IpcSink::new(move |json| tx.send(Outbound::Post(json)).map_err(|_| WebViewError::Message("macOS WebView 窗口已关闭".into())))
+        };
+        let push_close = {
+            let tx = outbox_tx;
+            move || tx.send(Outbound::Close).is_ok()
+        };
+        std::thread::Builder::new()
+            .name("wae-ipc".to_string())
+            .spawn(move || {
+                let mut handler = handler;
+                for message in inbox_rx.iter() {
+                    match handler.on_ipc(&message, &sink) {
+                        IpcOutcome::ReplyToPage(json) => {
+                            let _ = sink.post(&json);
+                        }
+                        IpcOutcome::CloseWindow => {
+                            let _ = push_close();
+                        }
+                        IpcOutcome::Ignored => {}
+                    }
+                }
+            })
+            .map_err(|error| WebViewError::Message(format!("IPC worker 线程启动失败: {error}")))?;
+
+        Ok(Self { app, window, webview, ipc, outbox_rx, alive: true })
     }
 
     fn pump(&mut self) -> bool {
@@ -157,7 +195,7 @@ impl WebViewBackend for MacosBackend {
             self.app.sendEvent(&event);
         }
 
-        self.dispatch_pending();
+        self.drain_outbox();
         if !self.alive || !self.window.isVisible() {
             self.alive = false;
             return false;

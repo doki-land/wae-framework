@@ -1,5 +1,4 @@
 use std::{
-    collections::VecDeque,
     ffi::{OsStr, c_void},
     os::windows::ffi::OsStrExt,
     path::Path,
@@ -47,8 +46,8 @@ use windows::{
             WindowsAndMessaging::{
                 CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GWLP_USERDATA, GetClientRect,
                 GetWindowLongPtrW, ICON_BIG, ICON_SMALL, IDC_ARROW, IMAGE_ICON, IsIconic, IsWindow, LR_LOADFROMFILE, LoadCursorW, LoadImageW,
-                MSG, PM_REMOVE, PeekMessageW, PostMessageW, PostQuitMessage, RegisterClassW, SW_RESTORE, SW_SHOW, SW_SHOWNORMAL,
-                SWP_NOACTIVATE, SWP_NOZORDER, SendMessageW, SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, ShowWindow, TranslateMessage,
+                MSG, PM_REMOVE, PeekMessageW, PostQuitMessage, RegisterClassW, SW_RESTORE, SW_SHOW, SW_SHOWNORMAL, SWP_NOACTIVATE,
+                SWP_NOZORDER, SendMessageW, SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, ShowWindow, TranslateMessage,
                 WINDOW_EX_STYLE, WM_ACTIVATE, WM_CLOSE, WM_CREATE, WM_DESTROY, WM_DPICHANGED, WM_DROPFILES, WM_KEYDOWN, WM_QUIT, WM_SETICON,
                 WM_SIZE, WNDCLASSW, WS_OVERLAPPEDWINDOW,
             },
@@ -57,13 +56,12 @@ use windows::{
     core::{Interface, PCWSTR, PWSTR, w},
 };
 
-use wae_webview::{IpcHandler, IpcOutcome, OpenOptions, Result, WebViewBackend, WebViewError};
+use wae_webview::{IpcHandler, IpcOutcome, IpcSink, OpenOptions, Result, WebViewBackend, WebViewError};
 
 use crate::{console, dpi};
 
 type EventRegistrationToken = i64;
 
-const WM_WAE_IPC: u32 = windows::Win32::UI::WindowsAndMessaging::WM_APP + 1;
 const VIRTUAL_HOST: &str = "app.local";
 /// 回退时携带原始路由的查询参数名，由前置脚本在页面脚本运行前消费。
 const SPA_ROUTE_PARAM: &str = "__wae_route";
@@ -71,13 +69,23 @@ const SPA_ROUTE_PARAM: &str = "__wae_route";
 /// 避免「进程活着但看不见窗口」；宁可短暂白屏，不要隐形窗口。
 const REVEAL_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// worker 线程排给窗口线程的出站动作；`pump()` 在拥有窗口的线程排空。
+enum Outbound {
+    /// 向页面投递一条消息。
+    Post(String),
+    /// 关闭窗口。
+    Close,
+}
+
 struct DesktopState {
     options: OpenOptions,
     hwnd: HWND,
     controller: Option<ICoreWebView2Controller>,
     webview: Option<ICoreWebView2>,
-    handler: Box<dyn IpcHandler>,
-    pending_ipc: Mutex<VecDeque<String>>,
+    /// 入站 IPC：`WebMessageReceived` 直接送进 IPC worker 线程，不在窗口消息循环执行处理者。
+    inbox_tx: mpsc::Sender<String>,
+    /// 出站动作：IPC worker 与 `IpcSink` 投递到这里，`pump()` 排空。
+    outbox_rx: mpsc::Receiver<Outbound>,
     /// 最近一次导航失败的结构化错误，用于退出时复述并解释白屏。
     navigation_error: Mutex<Option<WebViewError>>,
     alive: bool,
@@ -116,24 +124,21 @@ impl DesktopState {
         dpi::diag(format!("window.reveal trigger={trigger}"));
     }
 
-    fn dispatch_ipc(&mut self) {
-        let message = {
-            let mut guard = self.pending_ipc.lock().expect("ipc lock");
-            guard.pop_front()
-        };
-        let Some(message) = message
-        else {
-            return;
-        };
-
-        match self.handler.on_ipc(&message) {
-            IpcOutcome::ReplyToPage(json) => {
-                let _ = self.post_message(&json);
+    /// 在窗口线程排空 IPC worker 与 `IpcSink` 投递的出站动作。
+    fn drain_outbox(&self) {
+        loop {
+            match self.outbox_rx.try_recv() {
+                Ok(Outbound::Post(json)) => {
+                    let _ = self.post_message(&json);
+                }
+                Ok(Outbound::Close) => {
+                    unsafe {
+                        let _ = DestroyWindow(self.hwnd);
+                    }
+                    return;
+                }
+                Err(_) => return,
             }
-            IpcOutcome::CloseWindow => unsafe {
-                let _ = DestroyWindow(self.hwnd);
-            },
-            IpcOutcome::Ignored => {}
         }
     }
 
@@ -312,12 +317,11 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
             // 页面内上次聚焦的元素，不会重置光标位置。
             WM_ACTIVATE => {
                 let result = DefWindowProcW(hwnd, msg, wparam, lparam);
-                if (wparam.0 & 0xFFFF) != 0 {
-                    if let Some(controller) = state.controller.as_ref() {
-                        if let Err(error) = controller.MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC) {
-                            dpi::diag(format!("move_focus.failed hresult={:#x}", error.code().0));
-                        }
-                    }
+                if (wparam.0 & 0xFFFF) != 0
+                    && let Some(controller) = state.controller.as_ref()
+                    && let Err(error) = controller.MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC)
+                {
+                    dpi::diag(format!("move_focus.failed hresult={:#x}", error.code().0));
                 }
                 result
             }
@@ -339,10 +343,6 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
                     SWP_NOZORDER | SWP_NOACTIVATE,
                 );
                 state.log_geometry("wm_dpichanged");
-                LRESULT(0)
-            }
-            WM_WAE_IPC => {
-                state.dispatch_ipc();
                 LRESULT(0)
             }
             WM_DROPFILES => {
@@ -516,13 +516,8 @@ fn attach_webview(state: *mut DesktopState, controller: ICoreWebView2Controller)
         }
         let text = unsafe { message.to_string().unwrap_or_default() };
         let desktop = unsafe { &*(state_addr as *const DesktopState) };
-        {
-            let mut guard = desktop.pending_ipc.lock().expect("ipc lock");
-            guard.push_back(text);
-        }
-        unsafe {
-            let _ = PostMessageW(Some(desktop.hwnd), WM_WAE_IPC, WPARAM(0), LPARAM(0));
-        }
+        // 入站消息直接交给 IPC worker 线程；窗口消息循环不再执行处理者。
+        let _ = desktop.inbox_tx.send(text);
         Ok(())
     }));
 
@@ -876,13 +871,15 @@ impl WebViewBackend for Win32Backend {
                 None => (width, height),
             };
             let origin = dpi::dip_to_physical(100, initial_dpi);
+            let (inbox_tx, inbox_rx) = mpsc::channel::<String>();
+            let (outbox_tx, outbox_rx) = mpsc::channel::<Outbound>();
             let mut box_state = Box::new(DesktopState {
                 options,
                 hwnd: HWND::default(),
                 controller: None,
                 webview: None,
-                handler,
-                pending_ipc: Mutex::new(VecDeque::new()),
+                inbox_tx,
+                outbox_rx,
                 navigation_error: Mutex::new(None),
                 alive: true,
                 revealed: AtomicBool::new(false),
@@ -926,6 +923,36 @@ impl WebViewBackend for Win32Backend {
             if dpi::diag_enabled() {
                 box_state.open_dev_tools("diag");
             }
+
+            // IPC worker 线程：处理者在专用线程执行，窗口消息循环不再被业务阻塞；
+            // 出站动作经 outbox 回到窗口线程，由 `pump()` 排空投递。
+            let sink = {
+                let tx = outbox_tx.clone();
+                IpcSink::new(move |json| {
+                    tx.send(Outbound::Post(json)).map_err(|_| WebViewError::host("webview_not_ready", "post_message", "窗口已销毁"))
+                })
+            };
+            let push_close = {
+                let tx = outbox_tx;
+                move || tx.send(Outbound::Close).is_ok()
+            };
+            std::thread::Builder::new()
+                .name("wae-ipc".to_string())
+                .spawn(move || {
+                    let mut handler = handler;
+                    for message in inbox_rx.iter() {
+                        match handler.on_ipc(&message, &sink) {
+                            IpcOutcome::ReplyToPage(json) => {
+                                let _ = sink.post(&json);
+                            }
+                            IpcOutcome::CloseWindow => {
+                                let _ = push_close();
+                            }
+                            IpcOutcome::Ignored => {}
+                        }
+                    }
+                })
+                .map_err(|error| WebViewError::Message(format!("IPC worker 线程启动失败: {error}")))?;
 
             Ok(Self { state: box_state, quit: false, pumps: 0 })
         }
@@ -982,6 +1009,9 @@ impl WebViewBackend for Win32Backend {
                 }
             }
         }
+
+        // 在窗口线程排空 IPC worker 的出站动作（回复、迟到投递、关闭）。
+        self.state.drain_outbox();
 
         // 兜底显窗：导航迟迟不完成（网络挂起、页面永不触发完成事件）也要在
         // 超时后把窗口亮出来，用户至少能看见窗口并自行关闭。

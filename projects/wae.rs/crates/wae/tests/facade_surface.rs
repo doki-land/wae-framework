@@ -2,12 +2,14 @@
 //!
 //! 本文件刻意不出现任何平台 `cfg`，代表下游应用（含 `napi` 层）应有的写法。
 
-use wae::webview::{Capability, IpcHandler, IpcOutcome, OpenOptions, Platform, Result, WebViewError, WebViewHost, current_platform, open};
+use wae::webview::{
+    Capability, IpcHandler, IpcOutcome, IpcSink, OpenOptions, Platform, Result, WebViewError, WebViewHost, current_platform, open,
+};
 
 struct NoopHandler;
 
 impl IpcHandler for NoopHandler {
-    fn on_ipc(&mut self, _message: &str) -> IpcOutcome {
+    fn on_ipc(&mut self, _message: &str, _sink: &IpcSink) -> IpcOutcome {
         IpcOutcome::Ignored
     }
 }
@@ -27,6 +29,10 @@ fn facade_symbols_exist_with_stable_signatures() {
     let _: fn(&WebViewHost) -> bool = WebViewHost::is_alive;
     let _: fn(&WebViewHost) -> &'static str = WebViewHost::backend_name;
     let _: fn() -> Platform = current_platform;
+    // IPC 投递句柄：线程安全、可 clone、跨线程迟到回复的合同入口。
+    let _: fn(&IpcSink, &str) -> Result<()> = IpcSink::post;
+    fn assert_send_sync<T: Send + Sync + Clone>() {}
+    assert_send_sync::<IpcSink>();
 }
 
 /// shell 门面在三个桌面 target 上同一签名，下游不得平台分叉。

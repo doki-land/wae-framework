@@ -6,7 +6,7 @@
 
 #![deny(missing_docs)]
 
-use std::fmt;
+use std::{fmt, sync::Arc};
 
 /// macOS / Linux WebKit 后端的消息处理器名：页面侧为
 /// `window.webkit.messageHandlers.wae`。
@@ -90,10 +90,37 @@ pub enum IpcOutcome {
     Ignored,
 }
 
+/// 宿主 → 页面的线程安全投递句柄。
+///
+/// 框架把 [`IpcHandler::on_ipc`] 放在专用 IPC worker 线程执行；处理者可以把本句柄
+/// clone 进其它线程，随时投递迟到回复或进度事件。投递统一由各后端 `pump()` 在
+/// 拥有窗口的线程排空，因此不违反平台线程约束（macOS 主线程 / Linux GTK 初始化线程），
+/// 也不会让慢业务停在窗口消息循环里冻结标题栏。
+#[derive(Clone)]
+pub struct IpcSink {
+    deliver: Arc<dyn (Fn(String) -> crate::Result<()>) + Send + Sync>,
+}
+
+impl IpcSink {
+    /// 由后端实现从自己的线程安全投递入口构造。
+    pub fn new(deliver: impl Fn(String) -> crate::Result<()> + Send + Sync + 'static) -> Self {
+        Self { deliver: Arc::new(deliver) }
+    }
+
+    /// 向页面投递一条字符串消息；窗口已销毁时返回结构化失败。
+    pub fn post(&self, json: &str) -> crate::Result<()> {
+        (self.deliver)(json.to_string())
+    }
+}
+
 /// 处理 WebView 页面发来的消息。
 pub trait IpcHandler: Send {
     /// 处理一条入站 IPC 消息。
-    fn on_ipc(&mut self, message: &str) -> IpcOutcome;
+    ///
+    /// 本方法在框架的 IPC worker 线程执行，不在窗口消息循环线程：慢业务（HTTP、
+    /// 磁盘）不会冻结窗口。快回复直接返回 [`IpcOutcome::ReplyToPage`]；迟到回复与
+    /// 进度事件经 [`IpcSink`] 投递（句柄可 clone 到其它线程）。
+    fn on_ipc(&mut self, message: &str, sink: &IpcSink) -> IpcOutcome;
 }
 
 /// WebView 能力面；用于结构化表达「某平台缺少某项能力」。
@@ -334,7 +361,7 @@ mod tests {
     struct NoopHandler;
 
     impl IpcHandler for NoopHandler {
-        fn on_ipc(&mut self, _message: &str) -> IpcOutcome {
+        fn on_ipc(&mut self, _message: &str, _sink: &IpcSink) -> IpcOutcome {
             IpcOutcome::Ignored
         }
     }

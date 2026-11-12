@@ -4,18 +4,20 @@
 //! GTK / WebKit 符号在运行时通过 `libloading` 解析，缺少运行库或符号时返回明确错误。
 
 use std::{
-    collections::VecDeque,
     ffi::{CStr, CString, c_char, c_int, c_ulong, c_void},
     path::Path,
     ptr,
     sync::{
-        Arc, Mutex,
+        Arc,
         atomic::{AtomicBool, Ordering},
+        mpsc,
     },
 };
 
 use libloading::Library;
-use wae_webview::{IpcHandler, IpcOutcome, MESSAGE_HANDLER_NAME, OpenOptions, Result, WebViewBackend, WebViewError, page_receive_script};
+use wae_webview::{
+    IpcHandler, IpcOutcome, IpcSink, MESSAGE_HANDLER_NAME, OpenOptions, Result, WebViewBackend, WebViewError, page_receive_script,
+};
 
 type GtkWidget = c_void;
 type WebKitWebView = c_void;
@@ -128,8 +130,17 @@ unsafe fn symbol<T: Copy>(library: &Library, name: &str) -> Result<T> {
     Ok(*value)
 }
 
+/// worker 线程排给 GTK 线程的出站动作；`pump()` 在拥有窗口的线程排空。
+enum Outbound {
+    /// 向页面投递一条消息。
+    Post(String),
+    /// 关闭窗口。
+    Close,
+}
+
 struct Shared {
-    queue: Mutex<VecDeque<String>>,
+    /// 入站 IPC：`on_script_message` 直接送进 IPC worker 线程，不在 GTK 消息循环执行处理者。
+    inbox_tx: mpsc::Sender<String>,
     alive: AtomicBool,
     result_get_value: unsafe extern "C" fn(*mut WebKitJavascriptResult) -> *mut JscValue,
     value_to_string: unsafe extern "C" fn(*mut JscValue) -> *mut c_char,
@@ -153,9 +164,7 @@ unsafe extern "C" fn on_script_message(_manager: *mut c_void, result: *mut c_voi
     let message = unsafe { CStr::from_ptr(text) }.to_string_lossy().into_owned();
     unsafe { (shared.g_free)(text.cast()) };
     unsafe { (shared.result_unref)(result) };
-    if let Ok(mut queue) = shared.queue.lock() {
-        queue.push_back(message);
-    }
+    let _ = shared.inbox_tx.send(message);
 }
 
 unsafe extern "C" fn on_destroy(_widget: *mut c_void, data: *mut c_void) {
@@ -174,7 +183,7 @@ pub struct LinuxBackend {
     webview: *mut WebKitWebView,
     shared: Arc<Shared>,
     shared_raw: *mut c_void,
-    handler: Box<dyn IpcHandler>,
+    outbox_rx: mpsc::Receiver<Outbound>,
 }
 
 impl LinuxBackend {
@@ -204,8 +213,10 @@ impl WebViewBackend for LinuxBackend {
             ));
         }
 
+        let (inbox_tx, inbox_rx) = mpsc::channel::<String>();
+        let (outbox_tx, outbox_rx) = mpsc::channel::<Outbound>();
         let shared = Arc::new(Shared {
-            queue: Mutex::new(VecDeque::new()),
+            inbox_tx,
             alive: AtomicBool::new(true),
             result_get_value: libs.api.webkit_javascript_result_get_js_value,
             value_to_string: libs.api.jsc_value_to_string,
@@ -261,7 +272,35 @@ impl WebViewBackend for LinuxBackend {
         // SAFETY: `webview` 已创建且未销毁。
         unsafe { (libs.api.webkit_web_view_load_uri)(webview, target.as_ptr()) };
 
-        Ok(Self { api: libs.api, _libs: libs, window, webview, shared, shared_raw, handler })
+        // IPC worker 线程：处理者在专用线程执行，GTK 消息循环不再被业务阻塞；
+        // 出站动作经 outbox 回到 GTK 线程，由 `pump()` 排空投递。
+        let sink = {
+            let tx = outbox_tx.clone();
+            IpcSink::new(move |json| tx.send(Outbound::Post(json)).map_err(|_| WebViewError::Message("Linux WebView 窗口已关闭".into())))
+        };
+        let push_close = {
+            let tx = outbox_tx;
+            move || tx.send(Outbound::Close).is_ok()
+        };
+        std::thread::Builder::new()
+            .name("wae-ipc".to_string())
+            .spawn(move || {
+                let mut handler = handler;
+                for message in inbox_rx.iter() {
+                    match handler.on_ipc(&message, &sink) {
+                        IpcOutcome::ReplyToPage(json) => {
+                            let _ = sink.post(&json);
+                        }
+                        IpcOutcome::CloseWindow => {
+                            let _ = push_close();
+                        }
+                        IpcOutcome::Ignored => {}
+                    }
+                }
+            })
+            .map_err(|error| WebViewError::Message(format!("IPC worker 线程启动失败: {error}")))?;
+
+        Ok(Self { api: libs.api, _libs: libs, window, webview, shared, shared_raw, outbox_rx })
     }
 
     fn pump(&mut self) -> bool {
@@ -275,23 +314,19 @@ impl WebViewBackend for LinuxBackend {
             }
         }
 
+        // 在 GTK 线程排空 IPC worker 的出站动作（回复、迟到投递、关闭）。
         loop {
-            let message = self.shared.queue.lock().ok().and_then(|mut queue| queue.pop_front());
-            let Some(message) = message
-            else {
-                break;
-            };
-            match self.handler.on_ipc(&message) {
-                IpcOutcome::ReplyToPage(json) => {
+            match self.outbox_rx.try_recv() {
+                Ok(Outbound::Post(json)) => {
                     if self.post_message(&json).is_err() {
                         break;
                     }
                 }
-                IpcOutcome::CloseWindow => {
+                Ok(Outbound::Close) => {
                     let _ = self.close();
                     return false;
                 }
-                IpcOutcome::Ignored => {}
+                Err(_) => break,
             }
         }
 
