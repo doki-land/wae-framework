@@ -12,7 +12,7 @@ use std::{env::consts, sync::OnceLock};
 use wae::{
     CallContext, Error, Result,
     audit::{ActorKind, Auditor, Mode, Query, napi_call},
-    function, object, register_module,
+    class, function, object, register_module,
 };
 
 /// addon 级审计器：应用名固定为 `wae`，版本随构建。
@@ -118,9 +118,37 @@ fn audit_query(filter: Option<AuditFilter>) -> Result<String> {
     auditor().query_json(&query).map_err(|error| Error::new(error.to_string()))
 }
 
+/// 计数器：验证类导出、实例封装与 finalizer。
+#[derive(Debug, Default)]
+struct Counter {
+    value: u32,
+}
+
+#[class]
+impl Counter {
+    /// 以起始值创建实例。
+    #[constructor]
+    fn new(start: u32) -> Result<Self> {
+        Ok(Self { value: start })
+    }
+
+    /// 累加并返回新值。
+    #[method]
+    fn add(&mut self, n: u32) -> Result<u32> {
+        self.value += n;
+        Ok(self.value)
+    }
+
+    /// 当前值。
+    #[getter]
+    fn value(&self) -> Result<u32> {
+        Ok(self.value)
+    }
+}
+
 /// `kind` 字符串映射到身份类型；未知值按 `user` 处理，与旧行为一致。
 fn actor_kind(value: &str) -> ActorKind {
     if value.eq_ignore_ascii_case("agent") { ActorKind::Agent } else { ActorKind::User }
 }
 
-register_module![version, capabilities, probe, probe_async, audit_query];
+register_module![version, capabilities, probe, probe_async, audit_query; Counter];

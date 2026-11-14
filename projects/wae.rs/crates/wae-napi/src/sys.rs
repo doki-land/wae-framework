@@ -73,6 +73,32 @@ type FnCreateAsyncWork = unsafe extern "C" fn(
 ) -> napi_status;
 type FnQueueAsyncWork = unsafe extern "C" fn(napi_env, napi_async_work) -> napi_status;
 type FnDeleteAsyncWork = unsafe extern "C" fn(napi_env, napi_async_work) -> napi_status;
+pub type napi_finalize = unsafe extern "C" fn(napi_env, *mut c_void, *mut c_void);
+/// `napi_property_descriptor`：`napi_define_class` 的方法/访问器表项。
+#[repr(C)]
+pub struct napi_property_descriptor {
+    pub utf8name: *const c_char,
+    pub name: napi_value,
+    pub method: napi_callback,
+    pub getter: napi_callback,
+    pub setter: napi_callback,
+    pub value: napi_value,
+    pub attributes: i32,
+    pub data: *mut c_void,
+}
+type FnDefineClass = unsafe extern "C" fn(
+    napi_env,
+    *const c_char,
+    usize,
+    napi_callback,
+    *mut c_void,
+    usize,
+    *const napi_property_descriptor,
+    *mut napi_value,
+) -> napi_status;
+type FnWrap = unsafe extern "C" fn(napi_env, napi_value, *mut c_void, napi_finalize, *mut c_void, *mut napi_value) -> napi_status;
+type FnUnwrap = unsafe extern "C" fn(napi_env, napi_value, *mut *mut c_void) -> napi_status;
+type FnGetNewTarget = unsafe extern "C" fn(napi_env, napi_callback_info, *mut napi_value) -> napi_status;
 
 // Typed stubs matching each function signature.
 unsafe extern "C" fn stub_get_cb_info(
@@ -217,6 +243,38 @@ unsafe extern "C" fn stub_delete_async_work(_: napi_env, _: napi_async_work) -> 
     eprintln!("Node-API symbol napi_delete_async_work has not been loaded");
     1
 }
+unsafe extern "C" fn stub_define_class(
+    _: napi_env,
+    _: *const c_char,
+    _: usize,
+    _: napi_callback,
+    _: *mut c_void,
+    _: usize,
+    _: *const napi_property_descriptor,
+    _: *mut napi_value,
+) -> napi_status {
+    eprintln!("Node-API symbol napi_define_class has not been loaded");
+    1
+}
+unsafe extern "C" fn stub_wrap(
+    _: napi_env,
+    _: napi_value,
+    _: *mut c_void,
+    _: napi_finalize,
+    _: *mut c_void,
+    _: *mut napi_value,
+) -> napi_status {
+    eprintln!("Node-API symbol napi_wrap has not been loaded");
+    1
+}
+unsafe extern "C" fn stub_unwrap(_: napi_env, _: napi_value, _: *mut *mut c_void) -> napi_status {
+    eprintln!("Node-API symbol napi_unwrap has not been loaded");
+    1
+}
+unsafe extern "C" fn stub_get_new_target(_: napi_env, _: napi_callback_info, _: *mut napi_value) -> napi_status {
+    eprintln!("Node-API symbol napi_get_new_target has not been loaded");
+    1
+}
 
 struct NapiTable {
     napi_get_cb_info: FnGetCbInfo,
@@ -249,6 +307,10 @@ struct NapiTable {
     napi_create_async_work: FnCreateAsyncWork,
     napi_queue_async_work: FnQueueAsyncWork,
     napi_delete_async_work: FnDeleteAsyncWork,
+    napi_define_class: FnDefineClass,
+    napi_wrap: FnWrap,
+    napi_unwrap: FnUnwrap,
+    napi_get_new_target: FnGetNewTarget,
 }
 
 static mut NAPI: NapiTable = NapiTable {
@@ -282,6 +344,10 @@ static mut NAPI: NapiTable = NapiTable {
     napi_create_async_work: stub_create_async_work,
     napi_queue_async_work: stub_queue_async_work,
     napi_delete_async_work: stub_delete_async_work,
+    napi_define_class: stub_define_class,
+    napi_wrap: stub_wrap,
+    napi_unwrap: stub_unwrap,
+    napi_get_new_target: stub_get_new_target,
 };
 
 static HOST: OnceLock<Library> = OnceLock::new();
@@ -360,6 +426,10 @@ unsafe fn fill_table(host: &Library) {
     load_one!(napi_create_async_work, b"napi_create_async_work\0", FnCreateAsyncWork);
     load_one!(napi_queue_async_work, b"napi_queue_async_work\0", FnQueueAsyncWork);
     load_one!(napi_delete_async_work, b"napi_delete_async_work\0", FnDeleteAsyncWork);
+    load_one!(napi_define_class, b"napi_define_class\0", FnDefineClass);
+    load_one!(napi_wrap, b"napi_wrap\0", FnWrap);
+    load_one!(napi_unwrap, b"napi_unwrap\0", FnUnwrap);
+    load_one!(napi_get_new_target, b"napi_get_new_target\0", FnGetNewTarget);
 }
 
 /// Resolve N-API symbols from the host. Idempotent; call from module init.
@@ -551,4 +621,40 @@ pub unsafe fn napi_queue_async_work(env: napi_env, work: napi_async_work) -> nap
 #[inline]
 pub unsafe fn napi_delete_async_work(env: napi_env, work: napi_async_work) -> napi_status {
     (NAPI.napi_delete_async_work)(env, work)
+}
+
+#[inline]
+pub unsafe fn napi_define_class(
+    env: napi_env,
+    name: *const c_char,
+    length: usize,
+    constructor: napi_callback,
+    data: *mut c_void,
+    properties: *const napi_property_descriptor,
+    property_count: usize,
+    result: *mut napi_value,
+) -> napi_status {
+    (NAPI.napi_define_class)(env, name, length, constructor, data, property_count, properties, result)
+}
+
+#[inline]
+pub unsafe fn napi_wrap(
+    env: napi_env,
+    object: napi_value,
+    native: *mut c_void,
+    finalize: napi_finalize,
+    hint: *mut c_void,
+    result: *mut napi_value,
+) -> napi_status {
+    (NAPI.napi_wrap)(env, object, native, finalize, hint, result)
+}
+
+#[inline]
+pub unsafe fn napi_unwrap(env: napi_env, object: napi_value, result: *mut *mut c_void) -> napi_status {
+    (NAPI.napi_unwrap)(env, object, result)
+}
+
+#[inline]
+pub unsafe fn napi_get_new_target(env: napi_env, info: napi_callback_info, result: *mut napi_value) -> napi_status {
+    (NAPI.napi_get_new_target)(env, info, result)
 }

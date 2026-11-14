@@ -40,12 +40,29 @@ export type NativeTypeMeta = {
     text: string;
 };
 
+/** One class member. */
+export type NativeClassMethodMeta = {
+    js_name: string;
+    params: NativeParamMeta[];
+    returns: string;
+    kind: 'method' | 'getter';
+};
+
+/** One exported class. */
+export type NativeClassMeta = {
+    js_name: string;
+    constructor: NativeParamMeta[];
+    methods: NativeClassMethodMeta[];
+};
+
 /** `__waeTypes` payload. */
 export type NativeMetadata = {
     generator: string;
     wae_version: string;
     exports: NativeExportMeta[];
     types: NativeTypeMeta[];
+    /** Classes exported by the addon; absent in older metadata. */
+    classes?: NativeClassMeta[];
 };
 
 /** One publishable native target, reduced to what the loader needs. */
@@ -98,11 +115,13 @@ export function parseMetadata(value: unknown): NativeMetadata {
     }
     const exports = record.exports.map((item, index) => parseExport(item, index));
     const types = record.types.map((item, index) => parseType(item, index));
+    const classes = Array.isArray(record.classes) ? record.classes.map((item, index) => parseClass(item, index)) : [];
     return {
         generator: typeof record.generator === 'string' ? record.generator : 'wae',
         wae_version: typeof record.wae_version === 'string' ? record.wae_version : 'unknown',
         exports,
         types,
+        classes,
     };
 }
 
@@ -117,7 +136,19 @@ function parseExport(value: unknown, index: number): NativeExportMeta {
         throw new NativeTypegenError(`${where}.returns must be a type expression`);
     }
     if (!Array.isArray(record.params)) throw new NativeTypegenError(`${where}.params must be an array`);
-    const params = record.params.map((param, paramIndex) => {
+    const params = parseParams(record.params, where);
+    return {
+        js_name: record.js_name,
+        params,
+        returns: record.returns,
+        untyped: record.untyped === true,
+        async: record.async === true,
+    };
+}
+
+function parseParams(value: unknown, where: string): NativeParamMeta[] {
+    if (!Array.isArray(value)) throw new NativeTypegenError(`${where}.params must be an array`);
+    return value.map((param, paramIndex) => {
         const paramWhere = `${where}.params[${paramIndex}]`;
         if (param === null || typeof param !== 'object') throw new NativeTypegenError(`${paramWhere} must be an object`);
         const entry = param as Record<string, unknown>;
@@ -130,13 +161,38 @@ function parseExport(value: unknown, index: number): NativeExportMeta {
         if (typeof entry.optional !== 'boolean') throw new NativeTypegenError(`${paramWhere}.optional must be a boolean`);
         return { name: entry.name, ts: entry.ts, optional: entry.optional };
     });
-    return {
-        js_name: record.js_name,
-        params,
-        returns: record.returns,
-        untyped: record.untyped === true,
-        async: record.async === true,
-    };
+}
+
+function parseClass(value: unknown, index: number): NativeClassMeta {
+    const where = `__waeTypes.classes[${index}]`;
+    if (value === null || typeof value !== 'object') throw new NativeTypegenError(`${where} must be an object`);
+    const record = value as Record<string, unknown>;
+    if (typeof record.js_name !== 'string' || !/^[A-Za-z_$][\w$]*$/.test(record.js_name)) {
+        throw new NativeTypegenError(`${where}.js_name must be a JS identifier, got ${JSON.stringify(record.js_name)}`);
+    }
+    if (!Array.isArray(record.methods)) throw new NativeTypegenError(`${where}.methods must be an array`);
+    const methods = record.methods.map((method, methodIndex) => {
+        const methodWhere = `${where}.methods[${methodIndex}]`;
+        if (method === null || typeof method !== 'object') throw new NativeTypegenError(`${methodWhere} must be an object`);
+        const entry = method as Record<string, unknown>;
+        if (typeof entry.js_name !== 'string' || !/^[A-Za-z_$][\w$]*$/.test(entry.js_name)) {
+            throw new NativeTypegenError(`${methodWhere}.js_name must be a JS identifier`);
+        }
+        if (typeof entry.returns !== 'string' || entry.returns.trim() === '') {
+            throw new NativeTypegenError(`${methodWhere}.returns must be a type expression`);
+        }
+        if (entry.kind !== 'method' && entry.kind !== 'getter') {
+            throw new NativeTypegenError(`${methodWhere}.kind must be \`method\` or \`getter\``);
+        }
+        return {
+            js_name: entry.js_name,
+            params: parseParams(entry.params, methodWhere),
+            returns: entry.returns,
+            kind: entry.kind,
+        } as NativeClassMethodMeta;
+    });
+    const constructor = parseParams(record.constructor, `${where}.constructor`);
+    return { js_name: record.js_name, constructor, methods };
 }
 
 function parseType(value: unknown, index: number): NativeTypeMeta {
@@ -159,9 +215,18 @@ export function renderNativeModule(metadata: NativeMetadata, targets: NativeType
     }
     const exports = [...metadata.exports].sort((left, right) => left.js_name.localeCompare(right.js_name));
     const types = [...metadata.types].sort((left, right) => left.name.localeCompare(right.name));
+    const classes = [...(metadata.classes ?? [])].sort((left, right) => left.js_name.localeCompare(right.js_name));
     const seen = new Set<string>();
     for (const entry of exports) {
         if (seen.has(entry.js_name)) throw new NativeTypegenError(`duplicate native export \`${entry.js_name}\``);
+        seen.add(entry.js_name);
+    }
+    const typeNames = new Set(types.map((type) => type.name));
+    for (const entry of classes) {
+        if (seen.has(entry.js_name)) throw new NativeTypegenError(`duplicate native export \`${entry.js_name}\``);
+        if (typeNames.has(entry.js_name)) {
+            throw new NativeTypegenError(`class \`${entry.js_name}\` collides with an object interface of the same name`);
+        }
         seen.add(entry.js_name);
     }
 
@@ -170,9 +235,10 @@ export function renderNativeModule(metadata: NativeMetadata, targets: NativeType
         .map((target) => `    '${target.platform}-${target.arch}': '${target.package}',`)
         .join('\n');
 
-    const typeBlocks = types.map((type) => type.text.trimEnd()).join('\n\n');
+    const blocks = [...types.map((type) => type.text.trimEnd()), ...classes.map(classBlock)];
+    const typeBlocks = blocks.join('\n\n');
 
-    const methodLines = exports.map((entry) => `    ${signature(entry)};`).join('\n');
+    const methodLines = [...exports.map((entry) => `    ${signature(entry)};`), ...classes.map(classMember)].join('\n');
     const forwarders = exports.map((entry) => forwarder(entry)).join('\n\n');
 
     return `${HEADER}
@@ -223,6 +289,23 @@ function signature(entry: NativeExportMeta): string {
 
 function returnType(entry: NativeExportMeta): string {
     return entry.async ? `Promise<${entry.returns}>` : entry.returns;
+}
+
+function paramsText(params: NativeParamMeta[]): string {
+    return params.map((param) => `${param.name}${param.optional ? '?' : ''}: ${param.ts}`).join(', ');
+}
+
+function classBlock(entry: NativeClassMeta): string {
+    const members = entry.methods
+        .map((method) => (method.kind === 'getter'
+            ? `    readonly ${method.js_name}: ${method.returns}`
+            : `    ${method.js_name}(${paramsText(method.params)}): ${method.returns}`))
+        .join('\n');
+    return `export interface ${entry.js_name} {\n${members}\n}`;
+}
+
+function classMember(entry: NativeClassMeta): string {
+    return `    ${entry.js_name}: { new (${paramsText(entry.constructor)}): ${entry.js_name} };`;
 }
 
 function forwarder(entry: NativeExportMeta): string {

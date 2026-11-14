@@ -87,6 +87,25 @@ test('an async export returns a Promise', () => {
     assert.match(text, /export function probeAsync\(\): Promise<ProbeReport> \{/);
 });
 
+test('a class renders as an interface plus a constructor member', () => {
+    const value = metadata();
+    value.exports = [];
+    value.types = [];
+    value.classes = [
+        {
+            js_name: 'Counter',
+            constructor: [{ name: 'start', ts: 'number', optional: false }],
+            methods: [
+                { js_name: 'add', params: [{ name: 'n', ts: 'number', optional: false }], returns: 'number', kind: 'method' },
+                { js_name: 'value', params: [], returns: 'number', kind: 'getter' },
+            ],
+        },
+    ];
+    const text = renderNativeModule(value, targets);
+    assert.match(text, /export interface Counter \{\n    add\(n: number\): number\n    readonly value: number\n\}/);
+    assert.match(text, /    Counter: \{ new \(start: number\): Counter \};/);
+});
+
 test('metadata must carry a JSON payload with exports and types', () => {
     for (const value of [undefined, '', 'not json', '{}', '{"exports":[],"types":{}}']) {
         assert.throws(() => parseMetadata(value), NativeTypegenError, String(value));

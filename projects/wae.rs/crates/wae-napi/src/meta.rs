@@ -119,15 +119,68 @@ pub struct FunctionMeta {
     pub declarations: fn(&mut Vec<TypeDecl>),
 }
 
+/// 一个导出类的成员种类。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MethodKind {
+    /// 普通方法：`add(n: number): number`。
+    Method,
+    /// 只读访问器：`readonly value: number`。
+    Getter,
+}
+
+/// 一个导出类的方法形状。
+#[derive(Debug, Clone)]
+pub struct MethodMeta {
+    /// JS 方法名。
+    pub js_name: &'static str,
+    /// 位置参数（方法调用时不含 `this`）。
+    pub params: &'static [ParamMeta],
+    /// 返回值类型。
+    pub returns: fn() -> String,
+    /// 方法或访问器。
+    pub kind: MethodKind,
+}
+
+/// 一个导出类的 TypeScript 形状。
+#[derive(Debug, Clone)]
+pub struct ClassMeta {
+    /// 模块上的类名。
+    pub js_name: &'static str,
+    /// 构造参数。
+    pub constructor: &'static [ParamMeta],
+    /// 方法与访问器。
+    pub methods: &'static [MethodMeta],
+    /// 追加该类型依赖的接口声明。
+    pub declarations: fn(&mut Vec<TypeDecl>),
+}
+
+fn params_json(params: &[ParamMeta]) -> Vec<serde_json::Value> {
+    params
+        .iter()
+        .map(|param| {
+            serde_json::json!({
+                "name": param.name,
+                "ts": (param.ts)(),
+                "optional": param.optional,
+            })
+        })
+        .collect()
+}
+
 /// 把一组函数元数据渲染成 JSON 文本。
 ///
 /// 导出按 `js_name` 排序、接口按名字去重，保证同一份源码在任何目标上生成同一份文本。
 pub fn metadata_json(functions: &[fn() -> FunctionMeta]) -> String {
+    metadata_json_all(functions, &[])
+}
+
+/// 函数与类合一的元数据渲染入口。
+pub fn metadata_json_all(functions: &[fn() -> FunctionMeta], classes: &[fn() -> ClassMeta]) -> String {
     let mut exports: Vec<serde_json::Value> = Vec::with_capacity(functions.len());
-    let mut types: Vec<TypeDecl> = Vec::new();
+    let mut declarations: Vec<TypeDecl> = Vec::new();
     for factory in functions {
         let meta = factory();
-        (meta.declarations)(&mut types);
+        (meta.declarations)(&mut declarations);
         if meta.untyped {
             exports.push(serde_json::json!({
                 "js_name": meta.js_name,
@@ -138,20 +191,9 @@ pub fn metadata_json(functions: &[fn() -> FunctionMeta]) -> String {
             }));
             continue;
         }
-        let params: Vec<serde_json::Value> = meta
-            .params
-            .iter()
-            .map(|param| {
-                serde_json::json!({
-                    "name": param.name,
-                    "ts": (param.ts)(),
-                    "optional": param.optional,
-                })
-            })
-            .collect();
         exports.push(serde_json::json!({
             "js_name": meta.js_name,
-            "params": params,
+            "params": params_json(meta.params),
             "returns": (meta.returns)(),
             "untyped": false,
             "async": meta.is_async,
@@ -162,13 +204,46 @@ pub fn metadata_json(functions: &[fn() -> FunctionMeta]) -> String {
         let right = right.get("js_name").and_then(serde_json::Value::as_str).unwrap_or_default();
         left.cmp(right)
     });
-    types.sort_by(|left, right| left.name.cmp(&right.name));
-    types.dedup_by(|left, right| left.name == right.name);
+
+    let mut class_entries: Vec<serde_json::Value> = Vec::with_capacity(classes.len());
+    for factory in classes {
+        let meta = factory();
+        (meta.declarations)(&mut declarations);
+        let methods: Vec<serde_json::Value> = meta
+            .methods
+            .iter()
+            .map(|method| {
+                serde_json::json!({
+                    "js_name": method.js_name,
+                    "params": params_json(method.params),
+                    "returns": (method.returns)(),
+                    "kind": match method.kind {
+                        MethodKind::Method => "method",
+                        MethodKind::Getter => "getter",
+                    },
+                })
+            })
+            .collect();
+        class_entries.push(serde_json::json!({
+            "js_name": meta.js_name,
+            "constructor": params_json(meta.constructor),
+            "methods": methods,
+        }));
+    }
+    class_entries.sort_by(|left, right| {
+        let left = left.get("js_name").and_then(serde_json::Value::as_str).unwrap_or_default();
+        let right = right.get("js_name").and_then(serde_json::Value::as_str).unwrap_or_default();
+        left.cmp(right)
+    });
+
+    declarations.sort_by(|left, right| left.name.cmp(&right.name));
+    declarations.dedup_by(|left, right| left.name == right.name);
     serde_json::json!({
         "generator": "wae",
         "wae_version": env!("CARGO_PKG_VERSION"),
         "exports": exports,
-        "types": types.iter().map(|decl| serde_json::json!({ "name": decl.name, "text": decl.text })).collect::<Vec<_>>(),
+        "classes": class_entries,
+        "types": declarations.iter().map(|decl| serde_json::json!({ "name": decl.name, "text": decl.text })).collect::<Vec<_>>(),
     })
     .to_string()
 }

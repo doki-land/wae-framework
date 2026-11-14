@@ -20,7 +20,7 @@ mod convert;
 mod meta;
 
 pub use convert::{FromJs, Json, ToJs, js_to_json, json_to_js};
-pub use meta::{FunctionMeta, ParamMeta, TsType, TypeDecl, metadata_json};
+pub use meta::{ClassMeta, FunctionMeta, MethodKind, MethodMeta, ParamMeta, TsType, TypeDecl, metadata_json, metadata_json_all};
 
 use std::{
     ffi::{CStr, CString},
@@ -281,6 +281,40 @@ impl Env {
             let _ = napi_delete_async_work(self.0, work);
         }
     }
+
+    /// 定义一个 JS 类；`constructor` 必须用 [`Env::wrap`] 挂上实例。
+    pub fn define_class(self, name: &str, constructor: napi_callback, properties: &[napi_property_descriptor]) -> Result<JsValue> {
+        let c_name = CString::new(name).map_err(|error| Error::new(error.to_string()))?;
+        let mut out = ptr::null_mut();
+        check(unsafe {
+            napi_define_class(
+                self.0,
+                c_name.as_ptr(),
+                name.len(),
+                constructor,
+                ptr::null_mut(),
+                properties.as_ptr(),
+                properties.len(),
+                &mut out,
+            )
+        })?;
+        Ok(JsValue { env: self, value: out })
+    }
+
+    /// 把 `Box<T>` 实例挂到 JS 对象上，`finalize` 负责回收。
+    pub fn wrap(self, object: JsValue, native: *mut std::ffi::c_void, finalize: napi_finalize) -> Result<()> {
+        check(unsafe { napi_wrap(self.0, object.raw(), native, finalize, ptr::null_mut(), ptr::null_mut()) })
+    }
+
+    /// 取回 [`Env::wrap`] 挂上的实例指针。
+    pub fn unwrap(self, object: JsValue) -> Result<*mut std::ffi::c_void> {
+        let mut out = ptr::null_mut();
+        check(unsafe { napi_unwrap(self.0, object.raw(), &mut out) })?;
+        if out.is_null() {
+            return Err(Error::new("receiver is not an instance of this class"));
+        }
+        Ok(out)
+    }
 }
 
 /// Node-API 值句柄封装。
@@ -418,6 +452,8 @@ impl JsValue {
 pub struct CallContext {
     env: Env,
     args: Vec<JsValue>,
+    this: Option<JsValue>,
+    new_target: bool,
 }
 
 impl CallContext {
@@ -431,12 +467,13 @@ impl CallContext {
     pub unsafe fn from_callback_info(env: napi_env, info: napi_callback_info) -> Result<Self> {
         let mut argc = 8usize;
         let mut argv = [ptr::null_mut(); 8];
-        check(unsafe { napi_get_cb_info(env, info, &mut argc, argv.as_mut_ptr(), ptr::null_mut(), ptr::null_mut()) })?;
+        let mut this = ptr::null_mut();
+        check(unsafe { napi_get_cb_info(env, info, &mut argc, argv.as_mut_ptr(), &mut this, ptr::null_mut()) })?;
         let mut args = argv[..argc].to_vec();
         if argc == argv.len() {
             let mut wide = 64usize;
             let mut buffer = [ptr::null_mut(); 64];
-            check(unsafe { napi_get_cb_info(env, info, &mut wide, buffer.as_mut_ptr(), ptr::null_mut(), ptr::null_mut()) })?;
+            check(unsafe { napi_get_cb_info(env, info, &mut wide, buffer.as_mut_ptr(), &mut this, ptr::null_mut()) })?;
             if wide == buffer.len() {
                 return Err(Error::new("too many arguments: the call received 64 or more"));
             }
@@ -444,7 +481,10 @@ impl CallContext {
         }
         let env = Env::from_raw(env);
         let args = args.into_iter().map(|value| JsValue::from_raw(env, value)).collect();
-        Ok(Self { env, args })
+        let this = if this.is_null() { None } else { Some(JsValue::from_raw(env, this)) };
+        let mut new_target = ptr::null_mut();
+        check(unsafe { napi_get_new_target(env.raw(), info, &mut new_target) })?;
+        Ok(Self { env, args, this, new_target: !new_target.is_null() })
     }
 
     /// 回调环境。
@@ -455,6 +495,16 @@ impl CallContext {
     /// 位置参数列表。
     pub fn args(&self) -> &[JsValue] {
         &self.args
+    }
+
+    /// 方法调用时的 `this`；普通函数调用没有接收者。
+    pub fn this(&self) -> Result<JsValue> {
+        self.this.ok_or_else(|| Error::new("this call has no receiver"))
+    }
+
+    /// 本次调用是否通过 `new` 发起（构造器判定）。
+    pub fn is_constructor(&self) -> bool {
+        self.new_target
     }
 
     /// 按索引取位置参数。
@@ -490,12 +540,21 @@ pub fn register_exports_with_types(
     env: napi_env,
     exports: napi_value,
     methods: &[(&str, unsafe extern "C" fn(napi_env, napi_callback_info) -> napi_value)],
+    classes: &[(&str, unsafe extern "C" fn(napi_env, napi_value) -> napi_status)],
     metas: &[fn() -> FunctionMeta],
+    class_metas: &[fn() -> ClassMeta],
 ) -> Result<napi_value> {
     let raw = register_exports(env, exports, methods)?;
     let env = Env::from_raw(env);
-    let types = metadata_json(metas);
-    JsValue::from_raw(env, raw).set_named("__waeTypes", env.string(&types)?)?;
+    let target = JsValue::from_raw(env, raw);
+    for (name, register) in classes {
+        let status = unsafe { register(env.raw(), raw) };
+        if status != 0 {
+            return Err(Error::new(format!("failed to register class `{name}`")));
+        }
+    }
+    let types = metadata_json_all(metas, class_metas);
+    target.set_named("__waeTypes", env.string(&types)?)?;
     Ok(raw)
 }
 
@@ -546,12 +605,18 @@ where
 
 /// 线程池任务句柄。
 pub use sys::napi_async_work;
+/// 原生回调签名。
+pub use sys::napi_callback;
 /// Node-API 回调信息句柄。
 pub use sys::napi_callback_info;
 /// Promise 的延迟结算句柄。
 pub use sys::napi_deferred;
 /// Node-API 环境句柄。
 pub use sys::napi_env;
+/// 实例回收回调。
+pub use sys::napi_finalize;
+/// 类方法的属性描述符。
+pub use sys::napi_property_descriptor;
 /// Node-API 状态码。
 pub use sys::napi_status;
 /// Node-API 值句柄。

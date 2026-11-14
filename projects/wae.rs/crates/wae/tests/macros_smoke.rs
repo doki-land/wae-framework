@@ -1,6 +1,6 @@
 //! 编译期冒烟：宏能展开；不加载真实 Node。
 
-use wae::{CallContext, JsValue, Result, function, object, register_module};
+use wae::{CallContext, JsValue, Result, class, function, object, register_module};
 
 #[function]
 fn version(ctx: CallContext) -> Result<JsValue> {
@@ -34,7 +34,35 @@ fn render_async(options: RenderOptions) -> Result<String> {
     Ok(options.out)
 }
 
-register_module![version, hello_world, render, render_async];
+register_module![version, hello_world, render, render_async; Counter];
+
+/// 类导出冒烟：构造器、方法与访问器。
+#[derive(Debug, Default)]
+struct Counter {
+    value: u32,
+}
+
+#[class]
+impl Counter {
+    /// 以起始值创建实例。
+    #[constructor]
+    fn new(start: u32) -> Result<Self> {
+        Ok(Self { value: start })
+    }
+
+    /// 累加。
+    #[method]
+    fn add(&mut self, n: u32) -> Result<u32> {
+        self.value += n;
+        Ok(self.value)
+    }
+
+    /// 当前值。
+    #[getter]
+    fn value(&self) -> Result<u32> {
+        Ok(self.value)
+    }
+}
 
 #[test]
 fn export_const_names() {
@@ -100,4 +128,18 @@ fn async_exports_are_marked_in_metadata() {
     assert_eq!(export["js_name"], "renderAsync");
     assert_eq!(export["async"], true);
     assert_eq!(export["returns"], "string");
+}
+
+#[test]
+fn class_metadata_describes_members() {
+    let json = wae::metadata_json_all(&[], &[wae_meta_class_counter]);
+    let parsed: serde_json::Value = serde_json::from_str(&json).expect("metadata json");
+    let class = &parsed["classes"].as_array().expect("classes")[0];
+    assert_eq!(class["js_name"], "Counter");
+    assert_eq!(class["constructor"][0]["name"], "start");
+    let methods = class["methods"].as_array().expect("methods");
+    assert_eq!(methods[0]["js_name"], "add");
+    assert_eq!(methods[0]["kind"], "method");
+    assert_eq!(methods[1]["js_name"], "value");
+    assert_eq!(methods[1]["kind"], "getter");
 }

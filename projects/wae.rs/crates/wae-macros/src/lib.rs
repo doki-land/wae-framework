@@ -11,8 +11,8 @@ use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote};
 use syn::{
-    Data, DeriveInput, Expr, ExprLit, Fields, FnArg, ItemFn, Lit, Meta, MetaNameValue, Pat, ReturnType, Token, Type, TypePath, parse::Parser,
-    parse_macro_input, punctuated::Punctuated,
+    Data, DeriveInput, Expr, ExprLit, Fields, FnArg, ItemFn, Lit, Meta, MetaNameValue, Pat, ReturnType, Token, Type, TypePath,
+    parse_macro_input,
 };
 
 /// 把函数包成 Node-API 导出。
@@ -60,21 +60,29 @@ pub fn object(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// ```
 #[proc_macro]
 pub fn register_module(input: TokenStream) -> TokenStream {
-    let parser = Punctuated::<syn::Ident, Token![,]>::parse_terminated;
-    let idents = match parser.parse(input) {
+    let tokens: TokenStream2 = input.into();
+    let (functions, classes) = match parse_registration(tokens) {
         Ok(value) => value,
         Err(error) => return error.to_compile_error().into(),
     };
-    if idents.is_empty() {
-        return syn::Error::new(proc_macro2::Span::call_site(), "register_module! 至少需要一个导出函数").to_compile_error().into();
+    if functions.is_empty() && classes.is_empty() {
+        return syn::Error::new(proc_macro2::Span::call_site(), "register_module! 至少需要一个导出函数或类").to_compile_error().into();
     }
 
-    let entries = idents.iter().map(|id| {
+    let entries = functions.iter().map(|id| {
         let const_name = format_ident!("WAE_NAPI_EXPORT_{}", id.to_string().to_ascii_uppercase());
         quote! { #const_name }
     });
-    let metas = idents.iter().map(|id| {
+    let metas = functions.iter().map(|id| {
         let meta_name = format_ident!("wae_meta_{}", id);
+        quote! { #meta_name }
+    });
+    let class_entries = classes.iter().map(|id| {
+        let const_name = format_ident!("WAE_NAPI_CLASS_{}", id.to_string().to_ascii_uppercase());
+        quote! { #const_name }
+    });
+    let class_metas = classes.iter().map(|id| {
+        let meta_name = format_ident!("wae_meta_class_{}", snake_case(&id.to_string()));
         quote! { #meta_name }
     });
 
@@ -96,7 +104,13 @@ pub fn register_module(input: TokenStream) -> TokenStream {
                     #(#entries),*
                 ],
                 &[
+                    #(#class_entries),*
+                ],
+                &[
                     #(#metas),*
+                ],
+                &[
+                    #(#class_metas),*
                 ],
             ) {
                 Ok(value) => value,
@@ -108,6 +122,56 @@ pub fn register_module(input: TokenStream) -> TokenStream {
         }
     }
     .into()
+}
+
+/// 把 `fn..., ...; Class, ...` 拆成函数表与类表。
+fn parse_registration(tokens: TokenStream2) -> syn::Result<(Vec<syn::Ident>, Vec<syn::Ident>)> {
+    let mut functions = Vec::new();
+    let mut classes = Vec::new();
+    let mut current: Vec<proc_macro2::TokenTree> = Vec::new();
+    let mut in_classes = false;
+    for token in tokens {
+        if let proc_macro2::TokenTree::Punct(punct) = &token {
+            if punct.as_char() == ';' {
+                if !current.is_empty() {
+                    let ident = ident_from_group(&current)?;
+                    current.clear();
+                    functions.push(ident);
+                }
+                in_classes = true;
+                continue;
+            }
+            if punct.as_char() == ',' {
+                let ident = ident_from_group(&current)?;
+                current.clear();
+                if in_classes {
+                    classes.push(ident)
+                }
+                else {
+                    functions.push(ident)
+                }
+                continue;
+            }
+        }
+        current.push(token);
+    }
+    if !current.is_empty() {
+        let ident = ident_from_group(&current)?;
+        if in_classes { classes.push(ident) } else { functions.push(ident) }
+    }
+    Ok((functions, classes))
+}
+
+fn ident_from_group(tokens: &[proc_macro2::TokenTree]) -> syn::Result<syn::Ident> {
+    let mut iter = tokens.iter();
+    let Some(proc_macro2::TokenTree::Ident(ident)) = iter.next()
+    else {
+        return Err(syn::Error::new(proc_macro2::Span::call_site(), "register_module! 只接受标识符"));
+    };
+    if let Some(extra) = iter.next() {
+        return Err(syn::Error::new_spanned(extra, "register_module! 只接受标识符"));
+    }
+    Ok(ident.clone())
 }
 
 struct FunctionArgs {
@@ -465,6 +529,365 @@ fn expand_function(args: FunctionArgs, input: ItemFn) -> syn::Result<TokenStream
     })
 }
 
+/// 让 `impl` 块成为可导出的 JS 类。
+///
+/// 成员标记：`#[constructor]`（恰好一个）、`#[method]`、`#[getter]`。
+/// Rust 方法名按 camelCase 映射到 JS；实例保存在 `Box<T>` 里，由 finalizer 回收。
+///
+/// ```ignore
+/// #[class]
+/// impl Counter {
+///     #[constructor]
+///     fn new(start: u32) -> Result<Self> { Ok(Self { value: start }) }
+///
+///     #[method]
+///     fn add(&mut self, n: u32) -> Result<u32> { self.value += n; Ok(self.value) }
+///
+///     #[getter]
+///     fn value(&self) -> Result<u32> { Ok(self.value) }
+/// }
+/// ```
+#[proc_macro_attribute]
+pub fn class(attr: TokenStream, item: TokenStream) -> TokenStream {
+    if !attr.is_empty() {
+        return syn::Error::new(proc_macro2::Span::call_site(), "`#[class]` 不接受参数").to_compile_error().into();
+    }
+    let input = parse_macro_input!(item as syn::ItemImpl);
+    match expand_class(input) {
+        Ok(tokens) => tokens.into(),
+        Err(error) => error.to_compile_error().into(),
+    }
+}
+
+enum MemberKind {
+    None,
+    Constructor,
+    Method,
+    Getter,
+}
+
+struct ClassMember {
+    kind: MemberKind,
+    ident: syn::Ident,
+    js_name: String,
+    params: Vec<DataParam>,
+    returns: Type,
+    mutable: bool,
+}
+
+fn expand_class(input: syn::ItemImpl) -> syn::Result<TokenStream2> {
+    if input.trait_.is_some() {
+        return Err(syn::Error::new_spanned(&input, "`#[class]` 只能用于固有 impl 块"));
+    }
+    let self_ty = match &*input.self_ty {
+        Type::Path(path) => path.path.segments.last().map(|segment| segment.ident.clone()),
+        _ => None,
+    };
+    let Some(self_ty) = self_ty
+    else {
+        return Err(syn::Error::new_spanned(&input.self_ty, "`#[class]` 需要具名类型"));
+    };
+
+    let mut members: Vec<ClassMember> = Vec::new();
+    for item in &input.items {
+        let syn::ImplItem::Fn(function) = item
+        else {
+            continue;
+        };
+        let mut kind = MemberKind::None;
+        for attr in &function.attrs {
+            if attr.path().is_ident("constructor") {
+                kind = MemberKind::Constructor;
+            }
+            else if attr.path().is_ident("method") {
+                kind = MemberKind::Method;
+            }
+            else if attr.path().is_ident("getter") {
+                kind = MemberKind::Getter;
+            }
+        }
+        if matches!(kind, MemberKind::None) {
+            continue;
+        }
+        let success = success_type(&function.sig.output)?;
+        let mut params = Vec::new();
+        let mut mutable = false;
+        for (index, arg) in function.sig.inputs.iter().enumerate() {
+            match arg {
+                FnArg::Receiver(receiver) => {
+                    mutable = receiver.mutability.is_some();
+                    if receiver.reference.is_none() {
+                        return Err(syn::Error::new_spanned(receiver, "类成员只能以 `&self` 或 `&mut self` 接收"));
+                    }
+                }
+                FnArg::Typed(typed) => {
+                    if !matches!(kind, MemberKind::Constructor) && index == 0 {
+                        return Err(syn::Error::new_spanned(typed, "类成员缺少 `self` 接收者"));
+                    }
+                    let Pat::Ident(pattern) = &*typed.pat
+                    else {
+                        return Err(syn::Error::new_spanned(&typed.pat, "类成员的参数必须是简单标识符"));
+                    };
+                    params.push(DataParam {
+                        name: pattern.ident.clone(),
+                        ty: (*typed.ty).clone(),
+                        optional: option_inner(&typed.ty).is_some(),
+                    });
+                }
+            }
+        }
+        members.push(ClassMember {
+            kind,
+            js_name: camel_case(&function.sig.ident.to_string()),
+            ident: function.sig.ident.clone(),
+            params,
+            returns: success,
+            mutable,
+        });
+    }
+
+    let constructors: Vec<&ClassMember> = members.iter().filter(|member| matches!(member.kind, MemberKind::Constructor)).collect();
+    if constructors.len() != 1 {
+        return Err(syn::Error::new_spanned(&input, "`#[class]` 需要恰好一个 `#[constructor]`"));
+    }
+    let constructor = constructors[0];
+    for member in &members {
+        if matches!(member.kind, MemberKind::Constructor) && member.ident != constructor.ident {
+            return Err(syn::Error::new_spanned(&input, "`#[class]` 只能有一个构造器"));
+        }
+    }
+
+    let js_class = self_ty.to_string();
+    let snake = snake_case(&js_class);
+    let class_const = format_ident!("WAE_NAPI_CLASS_{}", self_ty.to_string().to_ascii_uppercase());
+    let new_fn = format_ident!("wae_new_{}", snake);
+    let finalize_fn = format_ident!("wae_finalize_{}", snake);
+    let register_fn = format_ident!("wae_register_class_{}", snake);
+    let meta_fn = format_ident!("wae_meta_class_{}", snake);
+    let decls_fn = format_ident!("wae_class_decls_{}", snake);
+
+    let ctor_ident = &constructor.ident;
+    let ctor_args: Vec<syn::Ident> = constructor.params.iter().map(|param| param.name.clone()).collect();
+    let ctor_lets = arg_lets(&constructor.params);
+
+    let mut member_fns = Vec::new();
+    let mut descriptors = Vec::new();
+    let mut method_metas = Vec::new();
+    let mut declarations = Vec::new();
+    for (index, member) in members.iter().enumerate() {
+        if matches!(member.kind, MemberKind::Constructor) {
+            continue;
+        }
+        let fn_ident = format_ident!("wae_member_{}_{}", snake, index);
+        let member_ident = &member.ident;
+        let args: Vec<syn::Ident> = member.params.iter().map(|param| param.name.clone()).collect();
+        let lets = arg_lets(&member.params);
+        let returns = &member.returns;
+        let receiver = if member.mutable {
+            quote! { let __this_ref = unsafe { &mut *(__ptr as *mut #self_ty) }; }
+        }
+        else {
+            quote! { let __this_ref = unsafe { &*(__ptr as *const #self_ty) }; }
+        };
+        member_fns.push(quote! {
+            #[doc(hidden)]
+            unsafe extern "C" fn #fn_ident(
+                env: ::wae::napi_env,
+                info: ::wae::napi_callback_info,
+            ) -> ::wae::napi_value {
+                unsafe {
+                    ::wae::catch_callback(env, info, |ctx: ::wae::CallContext| {
+                        let __this = ctx.this()?;
+                        let __ptr = ctx.env().unwrap(__this)?;
+                        #receiver
+                        #(#lets)*
+                        let __value = __this_ref.#member_ident(#(#args),*)?;
+                        ::wae::ToJs::to_js(__value, ctx.env())
+                    })
+                }
+            }
+        });
+        let c_name = member.js_name.clone();
+        let js_name_lit = member.js_name.clone();
+        let descriptor = if matches!(member.kind, MemberKind::Getter) {
+            declarations.push(quote! { <#returns as ::wae::TsType>::declarations(__out); });
+            method_metas.push(quote! {
+                ::wae::MethodMeta {
+                    js_name: #js_name_lit,
+                    params: &[],
+                    returns: <#returns as ::wae::TsType>::ts_type,
+                    kind: ::wae::MethodKind::Getter,
+                }
+            });
+            quote! {
+                ::wae::napi_property_descriptor {
+                    utf8name: concat!(#c_name, "\0").as_ptr() as *const ::std::os::raw::c_char,
+                    name: ::std::ptr::null_mut(),
+                    method: None,
+                    getter: Some(#fn_ident),
+                    setter: None,
+                    value: ::std::ptr::null_mut(),
+                    attributes: 5,
+                    data: ::std::ptr::null_mut(),
+                }
+            }
+        }
+        else {
+            let params = member.params.iter().map(|param| {
+                let name = param.name.to_string();
+                let ty = option_inner(&param.ty).unwrap_or(&param.ty);
+                let optional = param.optional;
+                quote! { ::wae::ParamMeta { name: #name, ts: <#ty as ::wae::TsType>::ts_type, optional: #optional } }
+            });
+            for param in &member.params {
+                let ty = &param.ty;
+                declarations.push(quote! { <#ty as ::wae::TsType>::declarations(__out); });
+            }
+            declarations.push(quote! { <#returns as ::wae::TsType>::declarations(__out); });
+            method_metas.push(quote! {
+                ::wae::MethodMeta {
+                    js_name: #js_name_lit,
+                    params: &[ #(#params),* ],
+                    returns: <#returns as ::wae::TsType>::ts_type,
+                    kind: ::wae::MethodKind::Method,
+                }
+            });
+            quote! {
+                ::wae::napi_property_descriptor {
+                    utf8name: concat!(#c_name, "\0").as_ptr() as *const ::std::os::raw::c_char,
+                    name: ::std::ptr::null_mut(),
+                    method: Some(#fn_ident),
+                    getter: None,
+                    setter: None,
+                    value: ::std::ptr::null_mut(),
+                    attributes: 5,
+                    data: ::std::ptr::null_mut(),
+                }
+            }
+        };
+        descriptors.push(descriptor);
+    }
+
+    let ctor_params = constructor.params.iter().map(|param| {
+        let name = param.name.to_string();
+        let ty = option_inner(&param.ty).unwrap_or(&param.ty);
+        let optional = param.optional;
+        quote! { ::wae::ParamMeta { name: #name, ts: <#ty as ::wae::TsType>::ts_type, optional: #optional } }
+    });
+    for param in &constructor.params {
+        let ty = &param.ty;
+        declarations.push(quote! { <#ty as ::wae::TsType>::declarations(__out); });
+    }
+
+    // 去掉成员标记，剩下的 `impl` 块原样保留。
+    let mut cleaned = input.clone();
+    for item in &mut cleaned.items {
+        if let syn::ImplItem::Fn(function) = item {
+            function
+                .attrs
+                .retain(|attr| !(attr.path().is_ident("constructor") || attr.path().is_ident("method") || attr.path().is_ident("getter")));
+        }
+    }
+    let property_count = descriptors.len();
+
+    Ok(quote! {
+        #cleaned
+
+        #[doc(hidden)]
+        unsafe extern "C" fn #finalize_fn(_env: ::wae::napi_env, data: *mut ::std::ffi::c_void, _hint: *mut ::std::ffi::c_void) {
+            if !data.is_null() {
+                drop(unsafe { Box::from_raw(data as *mut #self_ty) });
+            }
+        }
+
+        #[doc(hidden)]
+        unsafe extern "C" fn #new_fn(
+            env: ::wae::napi_env,
+            info: ::wae::napi_callback_info,
+        ) -> ::wae::napi_value {
+            unsafe {
+                ::wae::catch_callback(env, info, |ctx: ::wae::CallContext| {
+                    if !ctx.is_constructor() {
+                        return Err(::wae::Error::invalid_input(concat!(#js_class, " must be called with `new`")));
+                    }
+                    let __this = ctx.this()?;
+                    #(#ctor_lets)*
+                    let __value = <#self_ty>::#ctor_ident(#(#ctor_args),*)?;
+                    let __boxed = Box::into_raw(Box::new(__value));
+                    ctx.env().wrap(__this, __boxed as *mut ::std::ffi::c_void, #finalize_fn)?;
+                    Ok(__this)
+                })
+            }
+        }
+
+        #(#member_fns)*
+
+        #[doc(hidden)]
+        pub const #class_const: (&'static str, unsafe extern "C" fn(::wae::napi_env, ::wae::napi_value) -> ::wae::napi_status) =
+            (#js_class, #register_fn);
+
+        #[doc(hidden)]
+        pub unsafe extern "C" fn #register_fn(env: ::wae::napi_env, exports: ::wae::napi_value) -> ::wae::napi_status {
+            let __env = ::wae::Env::from_raw(env);
+            let __properties: [::wae::napi_property_descriptor; #property_count] = [ #(#descriptors),* ];
+            match __env.define_class(#js_class, Some(#new_fn), &__properties) {
+                Ok(__class) => match ::wae::JsValue::from_raw(__env, exports).set_named(#js_class, __class) {
+                    Ok(()) => 0,
+                    Err(_) => 1,
+                },
+                Err(_) => 1,
+            }
+        }
+
+        #[doc(hidden)]
+        fn #decls_fn(__out: &mut Vec<::wae::TypeDecl>) {
+            #(#declarations)*
+        }
+
+        #[doc(hidden)]
+        fn #meta_fn() -> ::wae::ClassMeta {
+            ::wae::ClassMeta {
+                js_name: #js_class,
+                constructor: &[ #(#ctor_params),* ],
+                methods: &[ #(#method_metas),* ],
+                declarations: #decls_fn,
+            }
+        }
+    })
+}
+
+/// 类成员的参数转换；与 `#[function]` 同形。
+fn arg_lets(params: &[DataParam]) -> Vec<TokenStream2> {
+    params
+        .iter()
+        .enumerate()
+        .map(|(index, param)| {
+            let name = &param.name;
+            let ty = &param.ty;
+            let label = format!("argument {index} ({name})");
+            if param.optional {
+                quote! {
+                    let #name = (|| -> ::wae::Result<#ty> {
+                        match ctx.args().get(#index).copied() {
+                            Some(value) => <#ty as ::wae::FromJs>::from_js(value),
+                            None => Ok(None),
+                        }
+                    })()
+                    .map_err(|error: ::wae::Error| error.context(#label))?;
+                }
+            }
+            else {
+                quote! {
+                    let #name = (|| -> ::wae::Result<#ty> {
+                        <#ty as ::wae::FromJs>::from_js(ctx.arg(#index)?)
+                    })()
+                    .map_err(|error: ::wae::Error| error.context(#label))?;
+                }
+            }
+        })
+        .collect()
+}
+
 fn camel_case(name: &str) -> String {
     let mut out = String::with_capacity(name.len());
     let mut upper = false;
@@ -476,6 +899,22 @@ fn camel_case(name: &str) -> String {
         if upper {
             out.extend(character.to_uppercase());
             upper = false;
+        }
+        else {
+            out.push(character);
+        }
+    }
+    out
+}
+
+fn snake_case(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    for (index, character) in name.chars().enumerate() {
+        if character.is_uppercase() {
+            if index > 0 {
+                out.push('_');
+            }
+            out.extend(character.to_lowercase());
         }
         else {
             out.push(character);
