@@ -8,7 +8,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { BUILD_CODES, WaeBuildError } from './build-error.js';
+import { DEFAULT_NATIVE_TYPES_OUT, parseMetadata, renderNativeModule, type NativeMetadata } from './native-types.js';
 import {
     loadConfig,
     parseStaticObject,
@@ -102,6 +104,7 @@ export async function runBuild(options: BuildOptions): Promise<BuildReport> {
     const native = runs('native') ? await runStep('native', () => runNativeStep(context, options.targetOverride), log) : undefined;
     const selected = native?.selected;
     if (native !== undefined) report.steps.push(native.step);
+    if (runs('types')) report.steps.push((await runStep('types', () => runTypesStep(context, selected), log)).step);
     if (runs('ts')) report.steps.push((await runStep('ts', () => runTsStep(context), log)).step);
     if (runs('ui')) report.steps.push((await runStep('ui', () => runUiStep(context), log)).step);
     if (runs('skills')) report.steps.push((await runStep('skills', () => runSkillsStep(context), log)).step);
@@ -171,6 +174,87 @@ function runNativeStep(context: BuildContext, targetOverride: string | undefined
     return {
         step: { name: 'native', status: 'ok', detail: `staged \`${selected.platform}-${selected.arch}\` → ${dest}` },
         selected,
+    };
+}
+
+/**
+ * Render the single generated native module from the staged addon.
+ *
+ * The addon's `__waeTypes` export is the only input besides the declared
+ * targets, so the generated file is platform independent and CI can diff it.
+ */
+function runTypesStep(context: BuildContext, selected: WaeNativeTarget | undefined): StepResult {
+    const types = context.config.build?.types;
+    if (types === undefined) {
+        return { step: { name: 'types', status: 'skipped', detail: '`build.types` is not configured' } };
+    }
+    const relativeOut = types.out ?? DEFAULT_NATIVE_TYPES_OUT;
+    if (context.dryRun) {
+        return {
+            step: {
+                name: 'types',
+                status: 'planned',
+                detail: `would generate \`${types.package}/${relativeOut}\` from \`__waeTypes\``,
+            },
+        };
+    }
+    if (selected === undefined) {
+        throw new WaeBuildError(
+            BUILD_CODES.targetMissing,
+            '`build.types` needs a staged addon; run the `native` step (or declare it in `build.steps`)',
+            { attempts: ['native', 'types'] },
+        );
+    }
+    const addonPath = path.resolve(context.root, selected.dir, selected.nodeFile);
+    if (!fs.existsSync(addonPath)) {
+        throw new WaeBuildError(BUILD_CODES.artifactMissing, `the staged addon is missing: ${addonPath}`, {
+            attempts: [addonPath],
+        });
+    }
+    const dir = findPackageDir(context.root, types.package);
+    if (dir === undefined) {
+        throw new WaeBuildError(
+            BUILD_CODES.targetMissing,
+            `package \`${types.package}\` listed in \`build.types\` was not found under ${context.root}`,
+            { attempts: [types.package] },
+        );
+    }
+    const out = path.resolve(dir, relativeOut);
+    const relative = path.relative(dir, out);
+    if (relative === '' || path.isAbsolute(relative) || relative.split(path.sep)[0] === '..') {
+        throw new WaeBuildError(
+            BUILD_CODES.stepFailed,
+            `generated native module must stay inside \`${types.package}\`: ${out}`,
+            { attempts: [out, dir] },
+        );
+    }
+
+    let metadata: NativeMetadata;
+    try {
+        const addon = createRequire(import.meta.url)(addonPath) as { __waeTypes?: unknown };
+        metadata = parseMetadata(addon.__waeTypes);
+    }
+    catch (error) {
+        throw new WaeBuildError(
+            BUILD_CODES.artifactMissing,
+            `cannot read \`__waeTypes\` from the staged addon ${addonPath}: ${error instanceof Error ? error.message : String(error)}`,
+            { attempts: [addonPath], cause: error },
+        );
+    }
+    const targets = (context.config.native?.targets ?? []).map((target) => ({
+        platform: target.platform,
+        arch: target.arch,
+        package: target.package,
+    }));
+    const text = renderNativeModule(metadata, targets);
+    fs.mkdirSync(path.dirname(out), { recursive: true });
+    fs.writeFileSync(out, text, 'utf8');
+    return {
+        step: {
+            name: 'types',
+            status: 'ok',
+            detail: `generated ${path.relative(context.root, out)} (${metadata.exports.length} export(s), ${metadata.types.length} type(s))`,
+        },
     };
 }
 

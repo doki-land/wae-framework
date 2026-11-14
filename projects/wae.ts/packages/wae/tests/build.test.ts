@@ -151,7 +151,7 @@ test('dry run plans every step in order and writes nothing', async () => {
 `);
     try {
         const report = await runBuild({ startDir: root, dryRun: true, log: () => {} });
-        assert.deepEqual(report.steps.map((step) => step.name), ['native', 'ts', 'ui', 'skills', 'staging']);
+        assert.deepEqual(report.steps.map((step) => step.name), ['native', 'types', 'ts', 'ui', 'skills', 'staging']);
         assert.equal(report.dryRun, true);
         assert.equal(report.steps.every((step) => step.status !== 'ok'), true);
         assert.equal(fs.existsSync(path.join(root, 'apps', 'tool', 'dist', 'ui')), false);

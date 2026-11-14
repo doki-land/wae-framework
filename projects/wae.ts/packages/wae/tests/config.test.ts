@@ -217,6 +217,24 @@ test('a narrowed `build.steps` list must include the steps it depends on', () =>
     assert.deepEqual(config.build?.steps?.map((step) => step.name), ['native', 'ts']);
 });
 
+test('`build.types` takes a package and a relative output path', () => {
+    const config = parseConfigSource(
+        `export default defineConfig({ build: { types: { package: '@scope/tool', out: 'src/native.ts' } } });`,
+    );
+    assert.deepEqual(config.build?.types, { package: '@scope/tool', out: 'src/native.ts' });
+
+    const defaulted = parseConfigSource(`export default defineConfig({ build: { types: { package: '@scope/tool' } } });`);
+    assert.deepEqual(defaulted.build?.types, { package: '@scope/tool' });
+
+    for (const out of ['../native.ts', 'C:/native.ts', '/native.ts']) {
+        assert.throws(
+            () => parseConfigSource(`export default defineConfig({ build: { types: { package: '@scope/tool', out: '${out}' } } });`),
+            (error: unknown) => error instanceof WaeConfigError && /relative path inside the package/.test(error.message),
+            out,
+        );
+    }
+});
+
 test('staging targets must stay inside the project root', async () => {
     const cases: Array<[string, RegExp]> = [
         ['.', /not the project root/],
@@ -375,7 +393,7 @@ export default defineConfig({
         const native = report.steps.find((step) => step.name === 'native');
         assert.match(native?.detail ?? '', /linux-x64/);
         assert.doesNotMatch(native?.detail ?? '', /win32-x64/);
-        assert.equal(report.steps.length, 5, `host is ${host}`);
+        assert.equal(report.steps.length, 6, `host is ${host}`);
     } finally {
         fs.rmSync(root, { recursive: true, force: true });
     }

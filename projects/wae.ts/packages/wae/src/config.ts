@@ -20,7 +20,7 @@ import {
 export const WAE_CONFIG_FILE = 'wae.config.ts';
 
 /** Build steps in their mandatory order. A config may narrow the list, never reorder it. */
-export const WAE_BUILD_ORDER = ['native', 'ts', 'ui', 'skills', 'staging'] as const;
+export const WAE_BUILD_ORDER = ['native', 'types', 'ts', 'ui', 'skills', 'staging'] as const;
 
 export type WaeBuildStepName = (typeof WAE_BUILD_ORDER)[number];
 
@@ -67,10 +67,26 @@ export type WaeBuildStep = {
     dependsOn?: WaeBuildStepName[];
 };
 
+/**
+ * Generated native TypeScript surface.
+ *
+ * One file per product package: platform resolution, types and forwarders are
+ * rendered from the `__waeTypes` metadata of the addon built by the `native` step.
+ * Platform packages are plain `.node` carriers and are never imported by product code.
+ */
+export type WaeTypesConfig = {
+    /** npm package that receives the generated module. */
+    package: string;
+    /** Generated file inside that package; defaults to `src/native/index.ts`. */
+    out?: string;
+};
+
 export type WaeBuildConfig = {
     steps?: WaeBuildStep[];
     /** npm packages whose `build` script compiles TypeScript, run in listed order. */
     ts?: { packages: string[] };
+    /** Generated native surface; requires `native` to stage an addon first. */
+    types?: WaeTypesConfig;
     /** npm package that owns the UI build. */
     ui?: { package: string };
     /** Copies applied after all builds; `from` must exist. */
@@ -677,7 +693,7 @@ function validatePackages(value: unknown, where: string): WaePlatformPackage[] {
 
 function validateBuild(value: unknown, where: string): WaeBuildConfig {
     const obj = expectObject(value, where);
-    assertKeys(obj, ['steps', 'ts', 'ui', 'stage', 'outputs'], where);
+    assertKeys(obj, ['steps', 'ts', 'types', 'ui', 'stage', 'outputs'], where);
     const build: WaeBuildConfig = {};
 
     if (obj.steps !== undefined) {
@@ -716,6 +732,19 @@ function validateBuild(value: unknown, where: string): WaeBuildConfig {
         const ts = expectObject(obj.ts, `${where}.ts`);
         assertKeys(ts, ['packages'], `${where}.ts`);
         build.ts = { packages: expectStringArray(ts.packages, `${where}.ts.packages`) };
+    }
+
+    if (obj.types !== undefined) {
+        const types = expectObject(obj.types, `${where}.types`);
+        assertKeys(types, ['package', 'out'], `${where}.types`);
+        const out = types.out === undefined ? undefined : expectString(types.out, `${where}.types.out`);
+        if (out !== undefined && (path.isAbsolute(out) || out.split(/[\\/]/).includes('..'))) {
+            invalid(`${where}.types.out`, 'must be a relative path inside the package');
+        }
+        build.types = {
+            package: expectString(types.package, `${where}.types.package`),
+            ...(out === undefined ? {} : { out }),
+        };
     }
 
     if (obj.ui !== undefined) {
