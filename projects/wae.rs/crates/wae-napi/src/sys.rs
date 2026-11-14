@@ -53,6 +53,8 @@ type FnGetNull = unsafe extern "C" fn(napi_env, *mut napi_value) -> napi_status;
 type FnIsArray = unsafe extern "C" fn(napi_env, napi_value, *mut bool) -> napi_status;
 type FnGetElement = unsafe extern "C" fn(napi_env, napi_value, u32, *mut napi_value) -> napi_status;
 type FnGetPropertyNames = unsafe extern "C" fn(napi_env, napi_value, *mut napi_value) -> napi_status;
+type FnCreateError = unsafe extern "C" fn(napi_env, napi_value, napi_value, *mut napi_value) -> napi_status;
+type FnThrow = unsafe extern "C" fn(napi_env, napi_value) -> napi_status;
 
 // Typed stubs matching each function signature.
 unsafe extern "C" fn stub_get_cb_info(
@@ -157,6 +159,14 @@ unsafe extern "C" fn stub_get_property_names(_: napi_env, _: napi_value, _: *mut
     eprintln!("Node-API symbol napi_get_property_names has not been loaded");
     1
 }
+unsafe extern "C" fn stub_create_error(_: napi_env, _: napi_value, _: napi_value, _: *mut napi_value) -> napi_status {
+    eprintln!("Node-API symbol napi_create_error has not been loaded");
+    1
+}
+unsafe extern "C" fn stub_throw(_: napi_env, _: napi_value) -> napi_status {
+    eprintln!("Node-API symbol napi_throw has not been loaded");
+    1
+}
 
 struct NapiTable {
     napi_get_cb_info: FnGetCbInfo,
@@ -181,6 +191,8 @@ struct NapiTable {
     napi_is_array: FnIsArray,
     napi_get_element: FnGetElement,
     napi_get_property_names: FnGetPropertyNames,
+    napi_create_error: FnCreateError,
+    napi_throw: FnThrow,
 }
 
 static mut NAPI: NapiTable = NapiTable {
@@ -206,6 +218,8 @@ static mut NAPI: NapiTable = NapiTable {
     napi_is_array: stub_is_array,
     napi_get_element: stub_get_element,
     napi_get_property_names: stub_get_property_names,
+    napi_create_error: stub_create_error,
+    napi_throw: stub_throw,
 };
 
 static HOST: OnceLock<Library> = OnceLock::new();
@@ -276,6 +290,8 @@ unsafe fn fill_table(host: &Library) {
     load_one!(napi_is_array, b"napi_is_array\0", FnIsArray);
     load_one!(napi_get_element, b"napi_get_element\0", FnGetElement);
     load_one!(napi_get_property_names, b"napi_get_property_names\0", FnGetPropertyNames);
+    load_one!(napi_create_error, b"napi_create_error\0", FnCreateError);
+    load_one!(napi_throw, b"napi_throw\0", FnThrow);
 }
 
 /// Resolve N-API symbols from the host. Idempotent; call from module init.
@@ -419,4 +435,14 @@ pub unsafe fn napi_get_element(env: napi_env, object: napi_value, index: u32, re
 #[inline]
 pub unsafe fn napi_get_property_names(env: napi_env, object: napi_value, result: *mut napi_value) -> napi_status {
     (NAPI.napi_get_property_names)(env, object, result)
+}
+
+#[inline]
+pub unsafe fn napi_create_error(env: napi_env, code: napi_value, message: napi_value, result: *mut napi_value) -> napi_status {
+    (NAPI.napi_create_error)(env, code, message, result)
+}
+
+#[inline]
+pub unsafe fn napi_throw(env: napi_env, error: napi_value) -> napi_status {
+    (NAPI.napi_throw)(env, error)
 }

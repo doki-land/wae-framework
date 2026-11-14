@@ -38,17 +38,39 @@ pub struct Error {
     message: String,
     code: Option<String>,
     refused: bool,
+    detail: Option<serde_json::Value>,
 }
 
 impl Error {
     /// 由说明文本构造错误。
     pub fn new(message: impl Into<String>) -> Self {
-        Self { message: message.into(), code: None, refused: false }
+        Self { message: message.into(), code: None, refused: false, detail: None }
+    }
+
+    /// 调用方输入非法：参数缺失、类型不符、取值越界。
+    pub fn invalid_input(message: impl Into<String>) -> Self {
+        Self::new(message).code("invalid_input")
+    }
+
+    /// 找不到目标资源（文件、预设、条目）。
+    pub fn not_found(message: impl Into<String>) -> Self {
+        Self::new(message).code("not_found")
+    }
+
+    /// 内部失败：I/O、序列化、后端错误。
+    pub fn internal(message: impl Into<String>) -> Self {
+        Self::new(message).code("internal")
     }
 
     /// 借用错误说明。
     pub fn message(&self) -> &str {
         &self.message
+    }
+
+    /// 设置稳定 code；JS 侧从 `error.code` 读取。
+    pub fn code(mut self, code: impl Into<String>) -> Self {
+        self.code = Some(code.into());
+        self
     }
 
     /// 标记为能力或授权拒绝，审计记为 `rejected`。
@@ -58,9 +80,20 @@ impl Error {
         self
     }
 
+    /// 附加结构化细节；JS 侧从 `error.detail` 读取。
+    pub fn detail(mut self, detail: serde_json::Value) -> Self {
+        self.detail = Some(detail);
+        self
+    }
+
     /// 稳定 code，缺失时由审计入口回落到默认值。
-    pub fn code(&self) -> Option<&str> {
+    pub fn code_name(&self) -> Option<&str> {
         self.code.as_deref()
+    }
+
+    /// 结构化细节。
+    pub fn detail_value(&self) -> Option<&serde_json::Value> {
+        self.detail.as_ref()
     }
 
     /// 是否属于能力或授权拒绝。
@@ -174,6 +207,30 @@ impl Env {
                 let _ = napi_throw_error(self.0, ptr::null(), c.as_ptr());
             }
         }
+    }
+
+    /// 把 [`Error`] 构造成 JS `Error` 实例，带 `code` 与可选 `detail` 属性。
+    ///
+    /// 这条路是错误契约的唯一出口：产品读 `error.code` / `error.detail`，
+    /// 不再解析文本前缀。
+    pub fn error(self, error: &Error) -> Result<JsValue> {
+        let message = self.string(error.message())?;
+        let code = match error.code_name() {
+            Some(code) => self.string(code)?.raw(),
+            None => ptr::null_mut(),
+        };
+        let mut out = ptr::null_mut();
+        check(unsafe { napi_create_error(self.0, code, message.raw(), &mut out) })?;
+        let value = JsValue { env: self, value: out };
+        if let Some(detail) = error.detail_value() {
+            value.set_named("detail", json_to_js(self, detail)?)?;
+        }
+        Ok(value)
+    }
+
+    /// 抛出任意 JS 值（通常是 [`Env::error`] 构造的错误对象）。
+    pub fn throw(self, value: JsValue) -> Result<()> {
+        check(unsafe { napi_throw(self.0, value.raw()) })
     }
 }
 
@@ -424,10 +481,16 @@ where
         let ctx = unsafe { CallContext::from_callback_info(env, info)? };
         f(ctx)
     })() {
-        Ok(v) => v.raw(),
-        Err(err) => {
-            env_wrap.throw_error(err.message());
-            ptr::null_mut()
+        Ok(value) => value.raw(),
+        Err(error) => {
+            // 结构化错误优先：JS 侧读 `error.code` / `error.detail`。
+            match env_wrap.error(&error).and_then(|value| env_wrap.throw(value)) {
+                Ok(()) => ptr::null_mut(),
+                Err(_) => {
+                    env_wrap.throw_error(error.message());
+                    ptr::null_mut()
+                }
+            }
         }
     }
 }

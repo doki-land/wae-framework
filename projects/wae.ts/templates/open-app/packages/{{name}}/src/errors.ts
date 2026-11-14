@@ -1,8 +1,9 @@
 /**
  * Stable CLI exit codes and the machine-readable error shape.
  *
- * The N-API boundary throws `Error` with a `wae.error:<json>` payload. This
- * module converts that into `AppError` without inventing a second schema.
+ * The N-API boundary throws a real `Error` instance with `code` and `detail`
+ * properties. This module normalizes that into `AppError` without inventing a
+ * second schema and without parsing message prefixes.
  */
 
 /** Process exit codes. `USAGE` is produced by `@wae/commander` itself. */
@@ -60,40 +61,38 @@ export class AppError extends Error {
     }
 }
 
-/** Prefix used by the native boundary when it throws a structured error. */
-export const NATIVE_ERROR_PREFIX = 'wae.error:';
-
 /** Whether the value is already an `AppError`. */
 export function isAppError(value: unknown): value is AppError {
     return value instanceof AppError;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === 'object';
+}
+
 /**
  * Normalize an exception from the native boundary or the filesystem.
  *
- * The native boundary is authoritative. When it sends `wae.error:<json>`, the
- * payload is used as-is. Other exceptions become `native_unavailable` or
- * `internal_error` with a stable code so agents do not parse prose.
+ * The native boundary is authoritative: a thrown `Error` carrying a string
+ * `code` becomes an `AppError` with the same code, and an object `detail`
+ * supplies `capability`, `platform`, `path`, and the canonical `message`.
+ * Everything else becomes `native_unavailable` or `internal_error` so agents
+ * never have to parse prose.
  */
 export function fromNativeError(value: unknown): AppError {
     if (value instanceof AppError) return value;
     const message = value instanceof Error ? value.message : String(value);
-    const index = message.indexOf(NATIVE_ERROR_PREFIX);
-    if (index >= 0) {
-        try {
-            const payload = JSON.parse(message.slice(index + NATIVE_ERROR_PREFIX.length)) as Partial<ErrorPayload>;
-            if (typeof payload.message === 'string' && typeof payload.code === 'string') {
-                return new AppError({
-                    code: payload.code,
-                    ...(typeof payload.capability === 'string' ? { capability: payload.capability } : {}),
-                    ...(typeof payload.platform === 'string' ? { platform: payload.platform } : {}),
-                    message: payload.message,
-                    ...(typeof payload.path === 'string' ? { path: payload.path } : {}),
-                });
-            }
-        }
-        catch {
-            // Fall through to the generic error below.
+    if (value instanceof Error) {
+        const native = value as Error & { code?: unknown; detail?: unknown };
+        if (typeof native.code === 'string' && native.code !== '') {
+            const detail = isRecord(native.detail) ? native.detail : undefined;
+            return new AppError({
+                code: native.code,
+                ...(typeof detail?.capability === 'string' ? { capability: detail.capability } : {}),
+                ...(typeof detail?.platform === 'string' ? { platform: detail.platform } : {}),
+                ...(typeof detail?.path === 'string' ? { path: detail.path } : {}),
+                message: typeof detail?.message === 'string' ? detail.message : message,
+            });
         }
     }
     const lower = message.toLowerCase();

@@ -126,15 +126,24 @@ pub(crate) fn capability_report() -> Capabilities {
 }
 
 /// Map a domain error onto the N-API error contract.
+///
+/// The JS side reads `error.code` and `error.detail`, so the payload crosses the
+/// boundary as structured fields instead of a JSON string prefix.
 pub(crate) fn core_error(error: CoreError) -> wae::Error {
     let payload = error.payload();
-    let text = match serde_json::to_string(&payload) {
-        Ok(json) => format!("wae.error:{json}"),
-        Err(_) => "wae.error:{\"code\":\"message\",\"message\":\"error payload serialization failed\"}".to_string(),
-    };
+    let detail = serde_json::to_value(&payload).ok();
     // Capability errors are refusals, so the audit record uses `rejected` with the
     // capability state code instead of a generic execution failure.
-    if matches!(&error, CoreError::Capability { .. }) { wae::Error::new(text).refused(error.code()) } else { wae::Error::new(text) }
+    let mapped = if matches!(&error, CoreError::Capability { .. }) {
+        wae::Error::new(payload.message.clone()).refused(payload.code.clone())
+    }
+    else {
+        wae::Error::new(payload.message.clone()).code(payload.code.clone())
+    };
+    match detail {
+        Some(detail) => mapped.detail(detail),
+        None => mapped,
+    }
 }
 
 /// Upstream host failure codes that mean a required GUI dependency is missing.

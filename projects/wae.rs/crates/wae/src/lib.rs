@@ -175,7 +175,7 @@ pub mod audit {
                     Ok(value)
                 }
                 Err(err) => {
-                    let code = err.code().unwrap_or(self.error_code.as_str());
+                    let code = err.code_name().unwrap_or(self.error_code.as_str());
                     let recorded = if err.is_refusal() { call.reject(code) } else { call.fail(code) };
                     recorded.map_err(|audit| Error::new(audit.to_string()))?;
                     Err(err)
