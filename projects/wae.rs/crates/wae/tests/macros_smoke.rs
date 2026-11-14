@@ -28,7 +28,13 @@ fn render(options: RenderOptions, count: Option<u32>) -> Result<String> {
     Ok(format!("{}:{}:{}", options.out, options.sample_rate.unwrap_or(0), count.unwrap_or(0)))
 }
 
-register_module![version, hello_world, render];
+/// 异步导出：包装成 Promise，元数据标记 `async`。
+#[function(js_name = "renderAsync", async)]
+fn render_async(options: RenderOptions) -> Result<String> {
+    Ok(options.out)
+}
+
+register_module![version, hello_world, render, render_async];
 
 #[test]
 fn export_const_names() {
@@ -84,4 +90,14 @@ fn metadata_is_sorted_by_export_name() {
     let parsed: serde_json::Value = serde_json::from_str(&json).expect("metadata json");
     let names: Vec<&str> = parsed["exports"].as_array().expect("exports").iter().filter_map(|export| export["js_name"].as_str()).collect();
     assert_eq!(names, ["helloWorld", "render", "version"]);
+}
+
+#[test]
+fn async_exports_are_marked_in_metadata() {
+    let json = wae::metadata_json(&[wae_meta_render_async]);
+    let parsed: serde_json::Value = serde_json::from_str(&json).expect("metadata json");
+    let export = &parsed["exports"].as_array().expect("exports")[0];
+    assert_eq!(export["js_name"], "renderAsync");
+    assert_eq!(export["async"], true);
+    assert_eq!(export["returns"], "string");
 }

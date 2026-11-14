@@ -232,6 +232,55 @@ impl Env {
     pub fn throw(self, value: JsValue) -> Result<()> {
         check(unsafe { napi_throw(self.0, value.raw()) })
     }
+
+    /// 创建 Promise 与其 deferred 句柄。
+    ///
+    /// 任务结束时用 [`Env::resolve`] 或 [`Env::reject`] 结算，二者只能在主线程调用。
+    pub fn promise(self) -> Result<(JsValue, napi_deferred)> {
+        let mut deferred = ptr::null_mut();
+        let mut promise = ptr::null_mut();
+        check(unsafe { napi_create_promise(self.0, &mut deferred, &mut promise) })?;
+        Ok((JsValue { env: self, value: promise }, deferred))
+    }
+
+    /// 用值结算 Promise。
+    pub fn resolve(self, deferred: napi_deferred, value: JsValue) -> Result<()> {
+        check(unsafe { napi_resolve_deferred(self.0, deferred, value.raw()) })
+    }
+
+    /// 用错误对象拒绝 Promise。
+    pub fn reject(self, deferred: napi_deferred, error: JsValue) -> Result<()> {
+        check(unsafe { napi_reject_deferred(self.0, deferred, error.raw()) })
+    }
+
+    /// 在 **Node 托管线程池** 上排一个任务。
+    ///
+    /// `execute` 在工作线程运行，不得触碰 `Env` / `JsValue`；`complete` 在主线程运行，
+    /// 负责转换返回值、结算 Promise 并删除任务。
+    pub fn async_work(
+        self,
+        name: &str,
+        data: *mut std::ffi::c_void,
+        execute: napi_async_execute_callback,
+        complete: napi_async_complete_callback,
+    ) -> Result<napi_async_work> {
+        let resource_name = self.string(name)?;
+        let mut work = ptr::null_mut();
+        check(unsafe { napi_create_async_work(self.0, ptr::null_mut(), resource_name.raw(), execute, complete, data, &mut work) })?;
+        Ok(work)
+    }
+
+    /// 把任务交给线程池。
+    pub fn queue_work(self, work: napi_async_work) -> Result<()> {
+        check(unsafe { napi_queue_async_work(self.0, work) })
+    }
+
+    /// 删除任务句柄；在 complete 回调里调用。
+    pub fn delete_work(self, work: napi_async_work) {
+        unsafe {
+            let _ = napi_delete_async_work(self.0, work);
+        }
+    }
 }
 
 /// Node-API 值句柄封装。
@@ -495,9 +544,15 @@ where
     }
 }
 
+/// 线程池任务句柄。
+pub use sys::napi_async_work;
 /// Node-API 回调信息句柄。
 pub use sys::napi_callback_info;
+/// Promise 的延迟结算句柄。
+pub use sys::napi_deferred;
 /// Node-API 环境句柄。
 pub use sys::napi_env;
+/// Node-API 状态码。
+pub use sys::napi_status;
 /// Node-API 值句柄。
 pub use sys::napi_value;

@@ -29,6 +29,8 @@ export type NativeExportMeta = {
     returns: string;
     /** Legacy `fn(CallContext) -> Result<JsValue>`: the signature is not statically described. */
     untyped: boolean;
+    /** `#[function(async)]`: the JS surface returns a `Promise`. */
+    async: boolean;
 };
 
 /** One object interface used by an export. */
@@ -133,6 +135,7 @@ function parseExport(value: unknown, index: number): NativeExportMeta {
         params,
         returns: record.returns,
         untyped: record.untyped === true,
+        async: record.async === true,
     };
 }
 
@@ -215,7 +218,11 @@ ${forwarders}
 function signature(entry: NativeExportMeta): string {
     if (entry.untyped) return `${entry.js_name}(...args: Array<unknown>): unknown`;
     const params = entry.params.map((param) => `${param.name}${param.optional ? '?' : ''}: ${param.ts}`).join(', ');
-    return `${entry.js_name}(${params}): ${entry.returns}`;
+    return `${entry.js_name}(${params}): ${returnType(entry)}`;
+}
+
+function returnType(entry: NativeExportMeta): string {
+    return entry.async ? `Promise<${entry.returns}>` : entry.returns;
 }
 
 function forwarder(entry: NativeExportMeta): string {
@@ -228,7 +235,7 @@ export function ${entry.js_name}(...args: Array<unknown>): unknown {
     const params = entry.params.map((param) => `${param.name}${param.optional ? '?' : ''}: ${param.ts}`).join(', ');
     const args = entry.params.map((param) => param.name).join(', ');
     return `/** Exported by the Rust addon. */
-export function ${entry.js_name}(${params}): ${entry.returns} {
+export function ${entry.js_name}(${params}): ${returnType(entry)} {
     return loadNative().${entry.js_name}(${args});
 }`;
 }

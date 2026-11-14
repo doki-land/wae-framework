@@ -78,6 +78,15 @@ test('a legacy export keeps an honest `unknown` surface', () => {
     assert.match(text, /export function probe\(\.\.\.args: Array<unknown>\): unknown \{\n    return loadNative\(\)\.probe\(\.\.\.args\);/);
 });
 
+test('an async export returns a Promise', () => {
+    const value = metadata();
+    value.exports = [{ js_name: 'probeAsync', params: [], returns: 'ProbeReport', untyped: false, async: true }];
+    value.types = [{ name: 'ProbeReport', text: 'export interface ProbeReport {\n    ok: boolean\n}' }];
+    const text = renderNativeModule(value, targets);
+    assert.match(text, /probeAsync\(\): Promise<ProbeReport>;/);
+    assert.match(text, /export function probeAsync\(\): Promise<ProbeReport> \{/);
+});
+
 test('metadata must carry a JSON payload with exports and types', () => {
     for (const value of [undefined, '', 'not json', '{}', '{"exports":[],"types":{}}']) {
         assert.throws(() => parseMetadata(value), NativeTypegenError, String(value));

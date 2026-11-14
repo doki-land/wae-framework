@@ -112,25 +112,42 @@ pub fn register_module(input: TokenStream) -> TokenStream {
 
 struct FunctionArgs {
     js_name: Option<String>,
+    is_async: bool,
 }
 
 fn parse_function_args(attr: TokenStream) -> syn::Result<FunctionArgs> {
-    if attr.is_empty() {
-        return Ok(FunctionArgs { js_name: None });
+    let tokens: TokenStream2 = attr.into();
+    if tokens.is_empty() {
+        return Ok(FunctionArgs { js_name: None, is_async: false });
     }
-    let metas = Punctuated::<Meta, Token![,]>::parse_terminated.parse(attr)?;
-    let mut js_name = None;
-    for meta in metas {
-        match meta {
-            Meta::NameValue(MetaNameValue { path, value, .. }) if path.is_ident("js_name") => {
-                js_name = Some(expr_to_string(&value)?);
+    let parser = |input: syn::parse::ParseStream<'_>| -> syn::Result<FunctionArgs> {
+        let mut js_name = None;
+        let mut is_async = false;
+        loop {
+            if input.peek(Token![async]) {
+                input.parse::<Token![async]>()?;
+                is_async = true;
             }
-            other => {
-                return Err(syn::Error::new_spanned(other, "仅支持 js_name = \"...\""));
+            else {
+                let ident: syn::Ident = input.parse()?;
+                if ident != "js_name" {
+                    return Err(syn::Error::new(ident.span(), "仅支持 `async` 与 `js_name = \"...\"`"));
+                }
+                input.parse::<Token![=]>()?;
+                let value: syn::LitStr = input.parse()?;
+                js_name = Some(value.value());
+            }
+            if input.is_empty() {
+                break;
+            }
+            input.parse::<Token![,]>()?;
+            if input.is_empty() {
+                break;
             }
         }
-    }
-    Ok(FunctionArgs { js_name })
+        Ok(FunctionArgs { js_name, is_async })
+    };
+    syn::parse::Parser::parse2(parser, tokens)
 }
 
 fn expr_to_string(expr: &Expr) -> syn::Result<String> {
@@ -212,6 +229,7 @@ fn expand_function(args: FunctionArgs, input: ItemFn) -> syn::Result<TokenStream
 
     let fn_ident = signature.ident.clone();
     let js_name = args.js_name.unwrap_or_else(|| fn_ident.to_string());
+    let is_async = args.is_async;
     let export_fn = format_ident!("wae_napi_export_{}", fn_ident);
     let export_const = format_ident!("WAE_NAPI_EXPORT_{}", fn_ident.to_string().to_ascii_uppercase());
     let meta_fn = format_ident!("wae_meta_{}", fn_ident);
@@ -241,6 +259,9 @@ fn expand_function(args: FunctionArgs, input: ItemFn) -> syn::Result<TokenStream
     }
 
     let has_ctx = ctx_param.is_some();
+    if is_async && has_ctx {
+        return Err(syn::Error::new_spanned(signature, "async 导出不能接收 `CallContext`：工作线程不能触碰 `Env`"));
+    }
     let arg_lets = data.iter().enumerate().map(|(index, param)| {
         let name = &param.name;
         let ty = &param.ty;
@@ -276,7 +297,42 @@ fn expand_function(args: FunctionArgs, input: ItemFn) -> syn::Result<TokenStream
         quote! { #fn_ident(#(#arg_names),*) }
     };
 
-    let body = if untyped && data.is_empty() {
+    let body = if is_async {
+        let task_ident = format_ident!("WaeTask_{}", fn_ident);
+        let execute_fn = format_ident!("wae_execute_{}", fn_ident);
+        let complete_fn = format_ident!("wae_complete_{}", fn_ident);
+        let arg_types: Vec<&Type> = data.iter().map(|param| &param.ty).collect();
+        let task_name = format!("wae:{js_name}");
+        quote! {{
+            #(#arg_lets)*
+            fn __wae_assert_send<T: Send>() {}
+            __wae_assert_send::<(#(#arg_types,)*)>();
+            __wae_assert_send::<#success>();
+            let (__promise, __deferred) = ctx.env().promise()?;
+            let __task = Box::new(#task_ident {
+                args: Some((#(#arg_names,)*)),
+                deferred: Some(__deferred),
+                work: None,
+                result: None,
+            });
+            let __raw = Box::into_raw(__task);
+            let __work = match ctx.env().async_work(#task_name, __raw as *mut ::std::ffi::c_void, #execute_fn, #complete_fn) {
+                Ok(work) => work,
+                Err(error) => {
+                    drop(unsafe { Box::from_raw(__raw) });
+                    return Err(error);
+                }
+            };
+            unsafe { (*__raw).work = Some(__work); }
+            if let Err(error) = ctx.env().queue_work(__work) {
+                ctx.env().delete_work(__work);
+                drop(unsafe { Box::from_raw(__raw) });
+                return Err(error);
+            }
+            Ok(__promise)
+        }}
+    }
+    else if untyped && data.is_empty() {
         // 旧形态：参数面由函数自己从 `ctx.args()` 读取，包装层不介入。
         quote! { #fn_ident(ctx) }
     }
@@ -305,9 +361,74 @@ fn expand_function(args: FunctionArgs, input: ItemFn) -> syn::Result<TokenStream
     let mut output = input;
     output.attrs.retain(|attr| !attr.path().is_ident("function"));
 
+    let async_defs = if is_async {
+        let task_ident = format_ident!("WaeTask_{}", fn_ident);
+        let execute_fn = format_ident!("wae_execute_{}", fn_ident);
+        let complete_fn = format_ident!("wae_complete_{}", fn_ident);
+        let arg_types: Vec<&Type> = data.iter().map(|param| &param.ty).collect();
+        quote! {
+            #[doc(hidden)]
+            #[allow(non_camel_case_types)]
+            struct #task_ident {
+                args: Option<(#(#arg_types,)*)>,
+                deferred: Option<::wae::napi_deferred>,
+                work: Option<::wae::napi_async_work>,
+                result: Option<::wae::Result<#success>>,
+            }
+
+            #[doc(hidden)]
+            unsafe extern "C" fn #execute_fn(_env: ::wae::napi_env, data: *mut ::std::ffi::c_void) {
+                // 工作线程：只跑纯 Rust 逻辑，不触碰 `Env` / `JsValue`。
+                let task = unsafe { &mut *(data as *mut #task_ident) };
+                let Some(args) = task.args.take()
+                else {
+                    return;
+                };
+                let (#(#arg_names,)*) = args;
+                task.result = Some(#fn_ident(#(#arg_names),*));
+            }
+
+            #[doc(hidden)]
+            unsafe extern "C" fn #complete_fn(env: ::wae::napi_env, _status: ::wae::napi_status, data: *mut ::std::ffi::c_void) {
+                // 主线程：转换返回值、结算 Promise、删除任务。
+                let task = unsafe { Box::from_raw(data as *mut #task_ident) };
+                let env = ::wae::Env::from_raw(env);
+                if let Some(work) = task.work {
+                    env.delete_work(work);
+                }
+                let Some(deferred) = task.deferred
+                else {
+                    return;
+                };
+                match task.result {
+                    Some(Ok(value)) => match ::wae::ToJs::to_js(value, env) {
+                        Ok(value) => {
+                            let _ = env.resolve(deferred, value);
+                        }
+                        Err(error) => {
+                            if let Ok(value) = env.error(&error) {
+                                let _ = env.reject(deferred, value);
+                            }
+                        }
+                    },
+                    Some(Err(error)) => {
+                        if let Ok(value) = env.error(&error) {
+                            let _ = env.reject(deferred, value);
+                        }
+                    }
+                    None => {}
+                }
+            }
+        }
+    }
+    else {
+        quote! {}
+    };
+
     Ok(quote! {
         #output
 
+        #async_defs
         #[doc(hidden)]
         const #export_const: (
             &'static str,
@@ -337,6 +458,7 @@ fn expand_function(args: FunctionArgs, input: ItemFn) -> syn::Result<TokenStream
                 params: &[ #(#params),* ],
                 returns: <#success as ::wae::TsType>::ts_type,
                 untyped: #untyped,
+                is_async: #is_async,
                 declarations: #decl_fn,
             }
         }

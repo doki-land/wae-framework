@@ -92,6 +92,17 @@ fn probe(ctx: &CallContext) -> Result<ProbeReport> {
     Ok(report)
 }
 
+/// 异步探针：在 Node 托管线程池上运行，用来验证 async 导出与 Promise 结算。
+///
+/// `delayMs` 只用于观测线程池行为（事件循环是否被阻塞），上限 5 秒。
+#[function(js_name = "probeAsync", async)]
+fn probe_async(delay_ms: Option<u64>) -> Result<ProbeReport> {
+    if let Some(delay) = delay_ms {
+        std::thread::sleep(std::time::Duration::from_millis(delay.min(5_000)));
+    }
+    Ok(ProbeReport { ok: true, platform: consts::OS.to_string(), arch: consts::ARCH.to_string() })
+}
+
 /// 查询审计记录，返回 JSON 数组文本。
 #[function(js_name = "auditQuery")]
 fn audit_query(filter: Option<AuditFilter>) -> Result<String> {
@@ -112,4 +123,4 @@ fn actor_kind(value: &str) -> ActorKind {
     if value.eq_ignore_ascii_case("agent") { ActorKind::Agent } else { ActorKind::User }
 }
 
-register_module![version, capabilities, probe, audit_query];
+register_module![version, capabilities, probe, probe_async, audit_query];

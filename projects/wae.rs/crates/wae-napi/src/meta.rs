@@ -113,6 +113,8 @@ pub struct FunctionMeta {
     pub returns: fn() -> String,
     /// 旧形态（`fn(CallContext) -> Result<JsValue>`）：参数面不可静态描述。
     pub untyped: bool,
+    /// `#[function(async)]`：JS 侧返回 `Promise<returns>`。
+    pub is_async: bool,
     /// 追加该函数用到的接口声明。
     pub declarations: fn(&mut Vec<TypeDecl>),
 }
@@ -132,6 +134,7 @@ pub fn metadata_json(functions: &[fn() -> FunctionMeta]) -> String {
                 "params": [],
                 "returns": "unknown",
                 "untyped": true,
+                "async": meta.is_async,
             }));
             continue;
         }
@@ -151,6 +154,7 @@ pub fn metadata_json(functions: &[fn() -> FunctionMeta]) -> String {
             "params": params,
             "returns": (meta.returns)(),
             "untyped": false,
+            "async": meta.is_async,
         }));
     }
     exports.sort_by(|left, right| {

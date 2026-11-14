@@ -55,6 +55,24 @@ type FnGetElement = unsafe extern "C" fn(napi_env, napi_value, u32, *mut napi_va
 type FnGetPropertyNames = unsafe extern "C" fn(napi_env, napi_value, *mut napi_value) -> napi_status;
 type FnCreateError = unsafe extern "C" fn(napi_env, napi_value, napi_value, *mut napi_value) -> napi_status;
 type FnThrow = unsafe extern "C" fn(napi_env, napi_value) -> napi_status;
+pub type napi_deferred = *mut c_void;
+pub type napi_async_work = *mut c_void;
+pub type napi_async_execute_callback = unsafe extern "C" fn(napi_env, *mut c_void);
+pub type napi_async_complete_callback = unsafe extern "C" fn(napi_env, napi_status, *mut c_void);
+type FnCreatePromise = unsafe extern "C" fn(napi_env, *mut napi_deferred, *mut napi_value) -> napi_status;
+type FnResolveDeferred = unsafe extern "C" fn(napi_env, napi_deferred, napi_value) -> napi_status;
+type FnRejectDeferred = unsafe extern "C" fn(napi_env, napi_deferred, napi_value) -> napi_status;
+type FnCreateAsyncWork = unsafe extern "C" fn(
+    napi_env,
+    napi_value,
+    napi_value,
+    napi_async_execute_callback,
+    napi_async_complete_callback,
+    *mut c_void,
+    *mut napi_async_work,
+) -> napi_status;
+type FnQueueAsyncWork = unsafe extern "C" fn(napi_env, napi_async_work) -> napi_status;
+type FnDeleteAsyncWork = unsafe extern "C" fn(napi_env, napi_async_work) -> napi_status;
 
 // Typed stubs matching each function signature.
 unsafe extern "C" fn stub_get_cb_info(
@@ -167,6 +185,38 @@ unsafe extern "C" fn stub_throw(_: napi_env, _: napi_value) -> napi_status {
     eprintln!("Node-API symbol napi_throw has not been loaded");
     1
 }
+unsafe extern "C" fn stub_create_promise(_: napi_env, _: *mut napi_deferred, _: *mut napi_value) -> napi_status {
+    eprintln!("Node-API symbol napi_create_promise has not been loaded");
+    1
+}
+unsafe extern "C" fn stub_resolve_deferred(_: napi_env, _: napi_deferred, _: napi_value) -> napi_status {
+    eprintln!("Node-API symbol napi_resolve_deferred has not been loaded");
+    1
+}
+unsafe extern "C" fn stub_reject_deferred(_: napi_env, _: napi_deferred, _: napi_value) -> napi_status {
+    eprintln!("Node-API symbol napi_reject_deferred has not been loaded");
+    1
+}
+unsafe extern "C" fn stub_create_async_work(
+    _: napi_env,
+    _: napi_value,
+    _: napi_value,
+    _: napi_async_execute_callback,
+    _: napi_async_complete_callback,
+    _: *mut c_void,
+    _: *mut napi_async_work,
+) -> napi_status {
+    eprintln!("Node-API symbol napi_create_async_work has not been loaded");
+    1
+}
+unsafe extern "C" fn stub_queue_async_work(_: napi_env, _: napi_async_work) -> napi_status {
+    eprintln!("Node-API symbol napi_queue_async_work has not been loaded");
+    1
+}
+unsafe extern "C" fn stub_delete_async_work(_: napi_env, _: napi_async_work) -> napi_status {
+    eprintln!("Node-API symbol napi_delete_async_work has not been loaded");
+    1
+}
 
 struct NapiTable {
     napi_get_cb_info: FnGetCbInfo,
@@ -193,6 +243,12 @@ struct NapiTable {
     napi_get_property_names: FnGetPropertyNames,
     napi_create_error: FnCreateError,
     napi_throw: FnThrow,
+    napi_create_promise: FnCreatePromise,
+    napi_resolve_deferred: FnResolveDeferred,
+    napi_reject_deferred: FnRejectDeferred,
+    napi_create_async_work: FnCreateAsyncWork,
+    napi_queue_async_work: FnQueueAsyncWork,
+    napi_delete_async_work: FnDeleteAsyncWork,
 }
 
 static mut NAPI: NapiTable = NapiTable {
@@ -220,6 +276,12 @@ static mut NAPI: NapiTable = NapiTable {
     napi_get_property_names: stub_get_property_names,
     napi_create_error: stub_create_error,
     napi_throw: stub_throw,
+    napi_create_promise: stub_create_promise,
+    napi_resolve_deferred: stub_resolve_deferred,
+    napi_reject_deferred: stub_reject_deferred,
+    napi_create_async_work: stub_create_async_work,
+    napi_queue_async_work: stub_queue_async_work,
+    napi_delete_async_work: stub_delete_async_work,
 };
 
 static HOST: OnceLock<Library> = OnceLock::new();
@@ -292,6 +354,12 @@ unsafe fn fill_table(host: &Library) {
     load_one!(napi_get_property_names, b"napi_get_property_names\0", FnGetPropertyNames);
     load_one!(napi_create_error, b"napi_create_error\0", FnCreateError);
     load_one!(napi_throw, b"napi_throw\0", FnThrow);
+    load_one!(napi_create_promise, b"napi_create_promise\0", FnCreatePromise);
+    load_one!(napi_resolve_deferred, b"napi_resolve_deferred\0", FnResolveDeferred);
+    load_one!(napi_reject_deferred, b"napi_reject_deferred\0", FnRejectDeferred);
+    load_one!(napi_create_async_work, b"napi_create_async_work\0", FnCreateAsyncWork);
+    load_one!(napi_queue_async_work, b"napi_queue_async_work\0", FnQueueAsyncWork);
+    load_one!(napi_delete_async_work, b"napi_delete_async_work\0", FnDeleteAsyncWork);
 }
 
 /// Resolve N-API symbols from the host. Idempotent; call from module init.
@@ -445,4 +513,42 @@ pub unsafe fn napi_create_error(env: napi_env, code: napi_value, message: napi_v
 #[inline]
 pub unsafe fn napi_throw(env: napi_env, error: napi_value) -> napi_status {
     (NAPI.napi_throw)(env, error)
+}
+
+#[inline]
+pub unsafe fn napi_create_promise(env: napi_env, deferred: *mut napi_deferred, promise: *mut napi_value) -> napi_status {
+    (NAPI.napi_create_promise)(env, deferred, promise)
+}
+
+#[inline]
+pub unsafe fn napi_resolve_deferred(env: napi_env, deferred: napi_deferred, value: napi_value) -> napi_status {
+    (NAPI.napi_resolve_deferred)(env, deferred, value)
+}
+
+#[inline]
+pub unsafe fn napi_reject_deferred(env: napi_env, deferred: napi_deferred, value: napi_value) -> napi_status {
+    (NAPI.napi_reject_deferred)(env, deferred, value)
+}
+
+#[inline]
+pub unsafe fn napi_create_async_work(
+    env: napi_env,
+    resource: napi_value,
+    resource_name: napi_value,
+    execute: napi_async_execute_callback,
+    complete: napi_async_complete_callback,
+    data: *mut c_void,
+    work: *mut napi_async_work,
+) -> napi_status {
+    (NAPI.napi_create_async_work)(env, resource, resource_name, execute, complete, data, work)
+}
+
+#[inline]
+pub unsafe fn napi_queue_async_work(env: napi_env, work: napi_async_work) -> napi_status {
+    (NAPI.napi_queue_async_work)(env, work)
+}
+
+#[inline]
+pub unsafe fn napi_delete_async_work(env: napi_env, work: napi_async_work) -> napi_status {
+    (NAPI.napi_delete_async_work)(env, work)
 }
