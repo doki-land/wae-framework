@@ -6,7 +6,7 @@
  * share one error contract.
  */
 import { AppError, fromNativeError } from './errors.js';
-import { loadNative } from './native.js';
+import { loadNative } from './native/index.js';
 
 /** Capability availability states. `null` means available. */
 export type CapabilityState = 'unsupported_platform' | 'not_implemented' | 'dependency_blocked';

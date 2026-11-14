@@ -1,105 +1,132 @@
 //! Platform-neutral N-API surface for {{nameTitle}}.
 //!
-//! This crate forwards generic capabilities to the `wae` facade and contains no
-//! platform `cfg` branches and no platform string literals. Missing host
-//! capabilities arrive as structured upstream errors. Audit is wrapped at every
-//! capability boundary through the shared `wae.audit/v0` facility.
+//! Every export is typed: `#[function]` converts parameters through `FromJs` and
+//! returns through `ToJs`, and `#[object]` defines the JS boundary shape of the
+//! option structs. `wae build` renders one `src/native.ts` from the addon's
+//! `__waeTypes` metadata, so this file carries no hand-written field extraction
+//! and no JSON bridge.
+//!
+//! The crate contains no platform `cfg` branches and no platform string
+//! literals; missing host capabilities arrive as structured upstream errors.
+//! Audit is wrapped at every capability boundary through the shared
+//! `wae.audit/v0` facility.
 
 #![deny(missing_docs)]
 
-use std::{cell::RefCell, env, path::PathBuf};
+use std::cell::RefCell;
 
-use {{nameSnake}}_core::{
-    AuditFields, Capabilities, Capability, CapabilityState, Error as CoreError, InspectionOptions, InstallOptions, UninstallOptions,
-    apply_install, apply_uninstall, capabilities as core_capabilities, capability_ids, inspect, plan_install, plan_uninstall,
-};
-use serde_json::{Value, json};
+use serde_json::Value;
 use wae::{
-    CallContext, Error, JsValue, Result, function, optional_string_prop, register_module,
-    webview::{IpcHandler, IpcOutcome, IpcSink, OpenOptions, WebViewError, open},
+    Json, Result, function, object, register_module,
+    webview::{OpenOptions, WebViewError, open},
+};
+use {{nameSnake}}_core::{
+    AuditFields, Capabilities, Capability, CapabilityState, Error as CoreError, InspectionOptions, InspectionReport, InstallOptions, InstallPlan,
+    UninstallOptions, UninstallPlan, apply_install, apply_uninstall, capabilities as core_capabilities, capability_ids, inspect, plan_install,
+    plan_uninstall,
 };
 
 mod audit;
+mod ipc;
 
 use audit::Summary;
 use wae::audit::Mode;
 
+/// Window title used when the caller does not pass one.
 const APP_TITLE: &str = "{{nameTitle}}";
+
+/// Environment variable that pins the GUI content directory.
 const GUI_DIR_ENV: &str = "{{nameUpperSnake}}_GUI";
 
 thread_local! {
+    /// The single window this process owns, if any.
     static GUI: RefCell<Option<wae::webview::WebViewHost>> = const { RefCell::new(None) };
 }
 
-struct HostIpc;
-
-impl IpcHandler for HostIpc {
-    fn on_ipc(&mut self, message: &str, _sink: &IpcSink) -> IpcOutcome {
-        let Ok(request) = serde_json::from_str::<Value>(message)
-        else {
-            return IpcOutcome::ReplyToPage(r#"{"ok":false,"error":"invalid json"}"#.to_string());
-        };
-        let kind = request.get("type").and_then(Value::as_str).unwrap_or_default();
-        match kind {
-            "close" => IpcOutcome::CloseWindow,
-            "capabilities" => match audit::run(capability_ids::CAPABILITIES, Mode::Execute, Value::Null, || {
-                Ok((capability_report(), Summary::new(1, "capabilities")))
-            }) {
-                Ok(report) => IpcOutcome::ReplyToPage(reply(json!({ "ok": true, "data": report }))),
-                Err(error) => IpcOutcome::ReplyToPage(reply(json!({ "ok": false, "error": error.payload() }))),
-            },
-            "inspect" => {
-                let options = InspectionOptions {
-                    root: request.get("root").and_then(Value::as_str).map(str::to_string),
-                    limit: request.get("limit").and_then(Value::as_u64).map(|value| value as usize),
-                };
-                let params = json!({ "root": &options.root, "limit": options.limit });
-                match audit::run(capability_ids::INSPECT, Mode::Execute, params, move || {
-                    let report = inspect(options)?;
-                    let count = report.entry_count as u64;
-                    Ok((report, Summary::new(count, "inspection")))
-                }) {
-                    Ok(report) => IpcOutcome::ReplyToPage(reply(json!({ "ok": true, "data": report }))),
-                    Err(error) => IpcOutcome::ReplyToPage(reply(json!({ "ok": false, "error": error.payload() }))),
-                }
-            }
-            "installPlan" => {
-                let options = InstallOptions {
-                    no_shortcut: request.get("noShortcut").and_then(Value::as_bool).unwrap_or(false),
-                    reset_config: request.get("resetConfig").and_then(Value::as_bool).unwrap_or(false),
-                };
-                let params = json!({ "noShortcut": options.no_shortcut, "resetConfig": options.reset_config });
-                match audit::run(capability_ids::INSTALL_PLAN, Mode::DryRun, params, move || {
-                    let plan = plan_install(&options)?;
-                    let fields = AuditFields::for_install_plan(&plan);
-                    Ok((plan, Summary::new(fields.target_count, fields.target_summary)))
-                }) {
-                    Ok(plan) => IpcOutcome::ReplyToPage(reply(json!({ "ok": true, "data": plan }))),
-                    Err(error) => IpcOutcome::ReplyToPage(reply(json!({ "ok": false, "error": error.payload() }))),
-                }
-            }
-            "uninstallPlan" => {
-                let options = UninstallOptions { keep_config: request.get("keepConfig").and_then(Value::as_bool).unwrap_or(true) };
-                let params = json!({ "keepConfig": options.keep_config });
-                match audit::run(capability_ids::UNINSTALL_PLAN, Mode::DryRun, params, move || {
-                    let plan = plan_uninstall(&options)?;
-                    let fields = AuditFields::for_uninstall_plan(&plan);
-                    Ok((plan, Summary::new(fields.target_count, fields.target_summary)))
-                }) {
-                    Ok(plan) => IpcOutcome::ReplyToPage(reply(json!({ "ok": true, "data": plan }))),
-                    Err(error) => IpcOutcome::ReplyToPage(reply(json!({ "ok": false, "error": error.payload() }))),
-                }
-            }
-            other => IpcOutcome::ReplyToPage(reply(json!({ "ok": false, "error": format!("unknown message: {other}") }))),
-        }
-    }
+/// Options for directory inspection.
+#[object]
+#[derive(Debug, Clone, Default)]
+struct InspectRequest {
+    root: Option<String>,
+    limit: Option<u64>,
 }
 
-fn reply(value: Value) -> String {
-    serde_json::to_string(&value).unwrap_or_else(|_| r#"{"ok":false,"error":"serialization failed"}"#.to_string())
+/// Options shared by install planning and application.
+#[object]
+#[derive(Debug, Clone, Default)]
+struct InstallRequest {
+    no_shortcut: Option<bool>,
+    reset_config: Option<bool>,
 }
 
-fn core_error(error: CoreError) -> Error {
+/// Options for uninstall planning and application.
+#[object]
+#[derive(Debug, Clone, Default)]
+struct UninstallRequest {
+    keep_config: Option<bool>,
+}
+
+/// Options for opening the GUI.
+#[object]
+#[derive(Debug, Clone, Default)]
+struct GuiRequest {
+    content_dir: Option<String>,
+    title: Option<String>,
+}
+
+/// Caller identity used by the shared audit facility.
+#[object]
+#[derive(Debug, Clone, Default)]
+struct ActorRequest {
+    actor_kind: Option<String>,
+    actor_id: Option<String>,
+    actor_source: Option<String>,
+    session: Option<String>,
+    host: Option<String>,
+}
+
+/// Audit query filter.
+#[object]
+#[derive(Debug, Clone, Default)]
+struct AuditRequest {
+    kind: Option<String>,
+    id: Option<String>,
+    capability: Option<String>,
+    from_ms: Option<u64>,
+    to_ms: Option<u64>,
+    limit: Option<u64>,
+}
+
+/// Result of a completed mutating capability.
+#[object]
+#[derive(Debug, Clone)]
+struct OkResult {
+    ok: bool,
+}
+
+/// Result of opening the GUI window.
+#[object]
+#[derive(Debug, Clone)]
+struct OpenedWindow {
+    backend: String,
+}
+
+/// Capability report with the upstream facade row the domain cannot know about.
+///
+/// The `wae` facade only compiles on targets that carry a WebView backend, so
+/// `gui` exists wherever this crate builds. Missing runtime libraries still
+/// surface from `gui-open` as `dependency_blocked`, because the Linux backend
+/// resolves GTK at runtime rather than at build time.
+pub(crate) fn capability_report() -> Capabilities {
+    let mut report = core_capabilities();
+    report.items.push(Capability::available(capability_ids::GUI));
+    let note = "`gui` covers `openGui`, `pumpEvents`, `closeGui` and `isGuiOpen`, missing runtime dependencies surface as `dependency_blocked` from `gui-open`";
+    report.notes.push(note.to_string());
+    report
+}
+
+/// Map a domain error onto the N-API error contract.
+pub(crate) fn core_error(error: CoreError) -> wae::Error {
     let payload = error.payload();
     let text = match serde_json::to_string(&payload) {
         Ok(json) => format!("wae.error:{json}"),
@@ -107,7 +134,7 @@ fn core_error(error: CoreError) -> Error {
     };
     // Capability errors are refusals, so the audit record uses `rejected` with the
     // capability state code instead of a generic execution failure.
-    if matches!(&error, CoreError::Capability { .. }) { Error::new(text).refused(error.code()) } else { Error::new(text) }
+    if matches!(&error, CoreError::Capability { .. }) { wae::Error::new(text).refused(error.code()) } else { wae::Error::new(text) }
 }
 
 /// Upstream host failure codes that mean a required GUI dependency is missing.
@@ -127,119 +154,24 @@ fn webview_error(error: WebViewError) -> CoreError {
     }
 }
 
-/// Capability report with the upstream facade row the domain cannot know about.
-///
-/// The `wae` facade only compiles on targets that carry a WebView backend, so `gui`
-/// exists wherever this crate builds. Missing runtime libraries still surface from
-/// `gui-open` as `dependency_blocked`, because the Linux backend resolves GTK at
-/// runtime rather than at build time.
-fn capability_report() -> Capabilities {
-    let mut report = core_capabilities();
-    report.items.push(Capability::available(capability_ids::GUI));
-    let note = "`gui` covers `openGui`, `pumpEvents`, `closeGui` and `isGuiOpen`, missing runtime dependencies surface as `dependency_blocked` from `gui-open`";
-    report.notes.push(note.to_string());
-    report
-}
-
-fn json_to_js(env: wae::Env, value: Value) -> Result<JsValue> {
-    match value {
-        Value::Null => env.null(),
-        Value::Bool(value) => env.boolean(value),
-        Value::Number(number) => match number.as_i64() {
-            Some(value) => env.int64(value),
-            None => env.double(number.as_f64().unwrap_or(0.0)),
-        },
-        Value::String(text) => env.string(&text),
-        Value::Array(items) => {
-            let array = env.array_with_length(items.len())?;
-            for (index, item) in items.into_iter().enumerate() {
-                array.set_element(index as u32, json_to_js(env, item)?)?;
-            }
-            Ok(array)
-        }
-        Value::Object(map) => {
-            let object = env.object()?;
-            for (key, item) in map {
-                object.set_named(&key, json_to_js(env, item)?)?;
-            }
-            Ok(object)
-        }
-    }
-}
-
-fn value_to_js<T: serde::Serialize>(ctx: &CallContext, value: &T) -> Result<JsValue> {
-    let json = serde_json::to_value(value).map_err(|error| Error::new(format!("serialize failed: {error}")))?;
-    json_to_js(ctx.env(), json)
-}
-
-fn object_arg(ctx: &CallContext) -> Result<Option<JsValue>> {
-    let Some(arg) = ctx.args().first().copied()
-    else {
-        return Ok(None);
-    };
-    if arg.is_undefined()? {
-        return Ok(None);
-    }
-    Ok(Some(arg))
-}
-
-fn optional_bool(obj: Option<JsValue>, name: &str) -> Result<bool> {
-    let Some(obj) = obj
-    else {
-        return Ok(false);
-    };
-    let value = obj.get_named(name)?;
-    if value.is_undefined()? {
-        return Ok(false);
-    }
-    value.as_bool()
-}
-
-fn optional_usize(obj: Option<JsValue>, name: &str) -> Result<Option<usize>> {
-    let Some(obj) = obj
-    else {
-        return Ok(None);
-    };
-    let value = obj.get_named(name)?;
-    if value.is_undefined()? {
-        return Ok(None);
-    }
-    Ok(Some(value.as_i64()?.max(0) as usize))
-}
-
-fn inspect_options(ctx: &CallContext) -> Result<InspectionOptions> {
-    let arg = object_arg(ctx)?;
-    Ok(InspectionOptions { root: arg.and_then(|obj| optional_string_prop(obj, "root").ok().flatten()), limit: optional_usize(arg, "limit")? })
-}
-
-fn install_options(ctx: &CallContext) -> Result<InstallOptions> {
-    let arg = object_arg(ctx)?;
-    Ok(InstallOptions { no_shortcut: optional_bool(arg, "noShortcut")?, reset_config: optional_bool(arg, "resetConfig")? })
-}
-
-fn uninstall_options(ctx: &CallContext) -> Result<UninstallOptions> {
-    let arg = object_arg(ctx)?;
-    Ok(UninstallOptions { keep_config: optional_bool(arg, "keepConfig")? })
-}
-
 fn resolve_gui_dir(requested: Option<String>) -> Result<String> {
     if let Some(dir) = requested
         && !dir.trim().is_empty()
     {
         return Ok(dir);
     }
-    if let Ok(dir) = env::var(GUI_DIR_ENV)
+    if let Ok(dir) = std::env::var(GUI_DIR_ENV)
         && !dir.trim().is_empty()
     {
         return Ok(dir);
     }
-    let candidates = [PathBuf::from("packages/{{name}}/dist/gui"), PathBuf::from("dist/gui"), PathBuf::from("gui")];
+    let candidates = [std::path::PathBuf::from("packages/{{name}}/dist/gui"), std::path::PathBuf::from("dist/gui"), std::path::PathBuf::from("gui")];
     for candidate in candidates {
         if candidate.join("index.html").is_file() {
             return Ok(candidate.display().to_string());
         }
     }
-    Err(Error::new("gui content dir not found: pass `contentDir` or build `packages/{{name}}/dist/gui`"))
+    Err(wae::Error::new("gui content dir not found: pass `contentDir` or build `packages/{{name}}/dist/gui`"))
 }
 
 fn actor_kind(value: Option<&str>) -> wae::audit::ActorKind {
@@ -249,178 +181,127 @@ fn actor_kind(value: Option<&str>) -> wae::audit::ActorKind {
     }
 }
 
-fn query_from_arg(arg: Option<JsValue>) -> Result<wae::audit::Query> {
-    let mut query = wae::audit::Query::default();
-    let Some(arg) = arg
-    else {
-        return Ok(query);
-    };
-    query.actor_kind = optional_string_prop(arg, "kind")?.map(|value| actor_kind(Some(value.as_str())));
-    query.actor_id = optional_string_prop(arg, "id")?;
-    query.capability = optional_string_prop(arg, "capability")?;
-    query.from_ms = optional_i64(arg, "fromMs")?.map(|value| value.max(0) as u64);
-    query.to_ms = optional_i64(arg, "toMs")?.map(|value| value.max(0) as u64);
-    query.limit = optional_i64(arg, "limit")?.map(|value| value.max(0) as usize);
-    Ok(query)
-}
-
-fn optional_i64(obj: JsValue, name: &str) -> Result<Option<i64>> {
-    let value = obj.get_named(name)?;
-    if value.is_undefined()? {
-        return Ok(None);
-    }
-    Ok(Some(value.as_i64()?))
-}
-
+/// Native addon version.
 #[function]
-fn version(ctx: CallContext) -> Result<JsValue> {
-    let result = audit::run(capability_ids::VERSION, Mode::DryRun, Value::Null, || {
-        Ok((env!("CARGO_PKG_VERSION").to_string(), Summary::new(0, "version")))
-    });
-    match result {
-        Ok(version) => ctx.env().string(&version),
-        Err(error) => Err(core_error(error)),
-    }
+fn version() -> Result<String> {
+    Ok(env!("CARGO_PKG_VERSION").to_string())
 }
 
+/// Capability report, including rows owned by the upstream facade.
 #[function]
-fn capabilities(ctx: CallContext) -> Result<JsValue> {
-    let result = audit::run(capability_ids::CAPABILITIES, Mode::DryRun, Value::Null, || {
+fn capabilities() -> Result<Json<Capabilities>> {
+    audit::run(capability_ids::CAPABILITIES, Mode::DryRun, Value::Null, || {
         let report = capability_report();
         let summary = Summary::new(report.items.len() as u64, "capabilities");
         Ok((report, summary))
-    });
-    match result {
-        Ok(report) => value_to_js(&ctx, &report),
-        Err(error) => Err(core_error(error)),
-    }
+    })
+    .map(Json)
+    .map_err(core_error)
 }
 
+/// Inspect a directory tree.
 #[function(js_name = "inspect")]
-fn inspect_tree(ctx: CallContext) -> Result<JsValue> {
-    let options = inspect_options(&ctx)?;
-    let params = json!({ "root": &options.root, "limit": options.limit });
-    let result = audit::run(capability_ids::INSPECT, Mode::Execute, params, move || {
+fn inspect_tree(request: Option<InspectRequest>) -> Result<Json<InspectionReport>> {
+    let request = request.unwrap_or_default();
+    let options = InspectionOptions { root: request.root, limit: request.limit.map(|value| value as usize) };
+    let params = serde_json::json!({ "root": &options.root, "limit": options.limit });
+    audit::run(capability_ids::INSPECT, Mode::Execute, params, move || {
         let report = inspect(options)?;
         let fields = AuditFields::for_report(&report);
-        let summary = Summary::new(fields.target_count, fields.target_summary);
-        Ok((report, summary))
-    });
-    match result {
-        Ok(report) => value_to_js(&ctx, &report),
-        Err(error) => Err(core_error(error)),
-    }
+        Ok((report, Summary::new(fields.target_count, fields.target_summary)))
+    })
+    .map(Json)
+    .map_err(core_error)
 }
 
+/// Plan an install or upgrade without touching host state.
 #[function(js_name = "installPlan")]
-fn install_plan(ctx: CallContext) -> Result<JsValue> {
-    let options = install_options(&ctx)?;
-    let params = json!({ "noShortcut": options.no_shortcut, "resetConfig": options.reset_config });
-    let result = audit::run(capability_ids::INSTALL_PLAN, Mode::DryRun, params, move || {
+fn install_plan(request: Option<InstallRequest>) -> Result<Json<InstallPlan>> {
+    let options = install_options(request);
+    let params = serde_json::json!({ "noShortcut": options.no_shortcut, "resetConfig": options.reset_config });
+    audit::run(capability_ids::INSTALL_PLAN, Mode::DryRun, params, move || {
         let plan = plan_install(&options)?;
         let fields = AuditFields::for_install_plan(&plan);
-        let summary = Summary::new(fields.target_count, fields.target_summary);
-        Ok((plan, summary))
-    });
-    match result {
-        Ok(plan) => value_to_js(&ctx, &plan),
-        Err(error) => Err(core_error(error)),
-    }
+        Ok((plan, Summary::new(fields.target_count, fields.target_summary)))
+    })
+    .map(Json)
+    .map_err(core_error)
 }
 
+/// Apply an install or upgrade.
 #[function(js_name = "installApply")]
-fn install_apply(ctx: CallContext) -> Result<JsValue> {
-    let options = install_options(&ctx)?;
-    let params = json!({ "noShortcut": options.no_shortcut, "resetConfig": options.reset_config });
-    let result = audit::run(capability_ids::INSTALL_APPLY, Mode::Execute, params, move || {
+fn install_apply(request: Option<InstallRequest>) -> Result<OkResult> {
+    let options = install_options(request);
+    let params = serde_json::json!({ "noShortcut": options.no_shortcut, "resetConfig": options.reset_config });
+    audit::run(capability_ids::INSTALL_APPLY, Mode::Execute, params, move || {
         apply_install(&options)?;
         Ok(((), Summary::new(0, "install applied")))
-    });
-    match result {
-        Ok(()) => {
-            let object = ctx.env().object()?;
-            object.set_named("ok", ctx.env().boolean(true)?)?;
-            Ok(object)
-        }
-        Err(error) => Err(core_error(error)),
-    }
+    })
+    .map(|()| OkResult { ok: true })
+    .map_err(core_error)
 }
 
+/// Plan an uninstall without touching host state.
 #[function(js_name = "uninstallPlan")]
-fn uninstall_plan(ctx: CallContext) -> Result<JsValue> {
-    let options = uninstall_options(&ctx)?;
-    let params = json!({ "keepConfig": options.keep_config });
-    let result = audit::run(capability_ids::UNINSTALL_PLAN, Mode::DryRun, params, move || {
+fn uninstall_plan(request: Option<UninstallRequest>) -> Result<Json<UninstallPlan>> {
+    let options = uninstall_options(request);
+    let params = serde_json::json!({ "keepConfig": options.keep_config });
+    audit::run(capability_ids::UNINSTALL_PLAN, Mode::DryRun, params, move || {
         let plan = plan_uninstall(&options)?;
         let fields = AuditFields::for_uninstall_plan(&plan);
-        let summary = Summary::new(fields.target_count, fields.target_summary);
-        Ok((plan, summary))
-    });
-    match result {
-        Ok(plan) => value_to_js(&ctx, &plan),
-        Err(error) => Err(core_error(error)),
-    }
+        Ok((plan, Summary::new(fields.target_count, fields.target_summary)))
+    })
+    .map(Json)
+    .map_err(core_error)
 }
 
+/// Apply an uninstall.
 #[function(js_name = "uninstallApply")]
-fn uninstall_apply(ctx: CallContext) -> Result<JsValue> {
-    let options = uninstall_options(&ctx)?;
-    let params = json!({ "keepConfig": options.keep_config });
-    let result = audit::run(capability_ids::UNINSTALL_APPLY, Mode::Execute, params, move || {
+fn uninstall_apply(request: Option<UninstallRequest>) -> Result<OkResult> {
+    let options = uninstall_options(request);
+    let params = serde_json::json!({ "keepConfig": options.keep_config });
+    audit::run(capability_ids::UNINSTALL_APPLY, Mode::Execute, params, move || {
         apply_uninstall(&options)?;
         Ok(((), Summary::new(0, "uninstall applied")))
-    });
-    match result {
-        Ok(()) => {
-            let object = ctx.env().object()?;
-            object.set_named("ok", ctx.env().boolean(true)?)?;
-            Ok(object)
-        }
-        Err(error) => Err(core_error(error)),
-    }
+    })
+    .map(|()| OkResult { ok: true })
+    .map_err(core_error)
 }
 
+/// Open the GUI window.
 #[function(js_name = "openGui")]
-fn open_gui(ctx: CallContext) -> Result<JsValue> {
-    let arg = object_arg(&ctx)?;
-    let content_dir = resolve_gui_dir(arg.and_then(|obj| optional_string_prop(obj, "contentDir").ok().flatten()))?;
-    let title = arg.and_then(|obj| optional_string_prop(obj, "title").ok().flatten()).unwrap_or_else(|| APP_TITLE.to_string());
-    let params = json!({ "contentDir": &content_dir, "title": &title });
-
-    let result = audit::run(capability_ids::GUI_OPEN, Mode::Execute, params, || {
+fn open_gui(request: Option<GuiRequest>) -> Result<OpenedWindow> {
+    let request = request.unwrap_or_default();
+    let content_dir = resolve_gui_dir(request.content_dir)?;
+    let title = request.title.unwrap_or_else(|| APP_TITLE.to_string());
+    let params = serde_json::json!({ "contentDir": &content_dir, "title": &title });
+    audit::run(capability_ids::GUI_OPEN, Mode::Execute, params, || {
         let options = OpenOptions::from_content_dir(&content_dir, &title);
-        let host = open(options, Box::new(HostIpc)).map_err(webview_error)?;
+        let host = open(options, Box::new(ipc::HostIpc)).map_err(webview_error)?;
         let backend = host.backend_name().to_string();
         GUI.with(|slot| {
             *slot.borrow_mut() = Some(host);
         });
         Ok((backend, Summary::new(1, "gui window opened")))
-    });
-    match result {
-        Ok(backend) => {
-            let object = ctx.env().object()?;
-            object.set_named("backend", ctx.env().string(&backend)?)?;
-            Ok(object)
-        }
-        Err(error) => Err(core_error(error)),
-    }
+    })
+    .map(|backend| OpenedWindow { backend })
+    .map_err(core_error)
 }
 
+/// Pump one GUI event batch.
 #[function(js_name = "pumpEvents")]
-fn pump_events(ctx: CallContext) -> Result<JsValue> {
-    let result = audit::run(capability_ids::GUI_PUMP, Mode::Execute, Value::Null, || {
+fn pump_events() -> Result<bool> {
+    audit::run(capability_ids::GUI_PUMP, Mode::Execute, Value::Null, || {
         let alive = GUI.with(|slot| slot.borrow_mut().as_mut().map(|host| host.pump()).unwrap_or(false));
         Ok((alive, Summary::new(1, "gui event pump")))
-    });
-    match result {
-        Ok(alive) => ctx.env().boolean(alive),
-        Err(error) => Err(core_error(error)),
-    }
+    })
+    .map_err(core_error)
 }
 
+/// Request GUI close.
 #[function(js_name = "closeGui")]
-fn close_gui(ctx: CallContext) -> Result<JsValue> {
-    let result = audit::run(capability_ids::GUI_CLOSE, Mode::Execute, Value::Null, || {
+fn close_gui() -> Result<bool> {
+    audit::run(capability_ids::GUI_CLOSE, Mode::Execute, Value::Null, || {
         let closed = GUI.with(|slot| {
             let mut slot = slot.borrow_mut();
             match slot.as_mut() {
@@ -434,57 +315,66 @@ fn close_gui(ctx: CallContext) -> Result<JsValue> {
             });
         }
         Ok((closed, Summary::new(1, "gui window close")))
-    });
-    match result {
-        Ok(closed) => ctx.env().boolean(closed),
-        Err(error) => Err(core_error(error)),
-    }
+    })
+    .map_err(core_error)
 }
 
+/// Whether the GUI window is still open.
 #[function(js_name = "isGuiOpen")]
-fn is_gui_open(ctx: CallContext) -> Result<JsValue> {
-    let result = audit::run(capability_ids::GUI_STATUS, Mode::DryRun, Value::Null, || {
+fn is_gui_open() -> Result<bool> {
+    audit::run(capability_ids::GUI_STATUS, Mode::DryRun, Value::Null, || {
         let alive = GUI.with(|slot| slot.borrow().as_ref().map(|host| host.is_alive()).unwrap_or(false));
         Ok((alive, Summary::new(1, "gui status")))
-    });
-    match result {
-        Ok(alive) => ctx.env().boolean(alive),
-        Err(error) => Err(core_error(error)),
-    }
+    })
+    .map_err(core_error)
 }
 
+/// Configure the shared audit facility for this process.
 #[function(js_name = "configureAudit")]
-fn configure_audit(ctx: CallContext) -> Result<JsValue> {
-    let arg = object_arg(&ctx)?;
-    let actor = wae::audit::Actor {
-        kind: actor_kind(arg.and_then(|obj| optional_string_prop(obj, "actorKind").ok().flatten()).as_deref()),
-        id: arg.and_then(|obj| optional_string_prop(obj, "actorId").ok().flatten()).unwrap_or_else(|| "unknown".to_string()),
-        source: arg.and_then(|obj| optional_string_prop(obj, "actorSource").ok().flatten()).unwrap_or_else(|| "local".to_string()),
-    };
-    let session = arg.and_then(|obj| optional_string_prop(obj, "session").ok().flatten());
-    let host = arg.and_then(|obj| optional_string_prop(obj, "host").ok().flatten());
-    audit::configure(actor, session, host);
-    let object = ctx.env().object()?;
-    object.set_named("ok", ctx.env().boolean(true)?)?;
-    Ok(object)
+fn configure_audit(request: Option<ActorRequest>) -> Result<OkResult> {
+    let request = request.unwrap_or_default();
+    audit::configure(
+        wae::audit::Actor {
+            kind: actor_kind(request.actor_kind.as_deref()),
+            id: request.actor_id.unwrap_or_else(|| "unknown".to_string()),
+            source: request.actor_source.unwrap_or_else(|| "local".to_string()),
+        },
+        request.session,
+        request.host,
+    );
+    Ok(OkResult { ok: true })
 }
 
+/// Read audit entries for the current actor as a JSON array.
 #[function(js_name = "auditQuery")]
-fn audit_query(ctx: CallContext) -> Result<JsValue> {
-    let filter = query_from_arg(ctx.args().first().copied())?;
-    let params = json!({ "capability": filter.capability, "limit": filter.limit });
-    let result = audit::run(capability_ids::AUDIT_QUERY, Mode::DryRun, params, || {
+fn audit_query(request: Option<AuditRequest>) -> Result<String> {
+    let request = request.unwrap_or_default();
+    let filter = wae::audit::Query {
+        actor_kind: request.kind.as_deref().map(|value| actor_kind(Some(value))),
+        actor_id: request.id,
+        capability: request.capability,
+        from_ms: request.from_ms,
+        to_ms: request.to_ms,
+        limit: request.limit.map(|value| value as usize),
+    };
+    let params = serde_json::json!({ "capability": &filter.capability, "limit": filter.limit });
+    audit::run(capability_ids::AUDIT_QUERY, Mode::DryRun, params, || {
         let entries = audit::query(&filter).map_err(|error| CoreError::message(error.to_string()))?;
         let summary = Summary::new(entries.len() as u64, "audit query");
         Ok((entries, summary))
-    });
-    match result {
-        Ok(entries) => {
-            let json = serde_json::to_string(&entries).map_err(|error| Error::new(error.to_string()))?;
-            ctx.env().string(&json)
-        }
-        Err(error) => Err(core_error(error)),
-    }
+    })
+    .map_err(core_error)
+    .and_then(|entries| serde_json::to_string(&entries).map_err(|error| wae::Error::new(error.to_string())))
+}
+
+fn install_options(request: Option<InstallRequest>) -> InstallOptions {
+    let request = request.unwrap_or_default();
+    InstallOptions { no_shortcut: request.no_shortcut.unwrap_or(false), reset_config: request.reset_config.unwrap_or(false) }
+}
+
+fn uninstall_options(request: Option<UninstallRequest>) -> UninstallOptions {
+    let request = request.unwrap_or_default();
+    UninstallOptions { keep_config: request.keep_config.unwrap_or(true) }
 }
 
 register_module![

@@ -39,7 +39,7 @@ first `Cargo.lock` is committed.
 ## Commands
 
 ```sh
-pnpm run build         # wae build: native → TS → UI → skills → staging
+pnpm run build         # wae build: native → types → TS → UI → skills → staging
 pnpm run build:napi    # build one configured native target and stage it
 pnpm run stage:napi    # restage an already built native artifact
 pnpm run smoke:napi    # load the staged addon and verify capabilities
@@ -50,6 +50,14 @@ pnpm run check:rust    # fmt + clippy -D warnings + test
 same order every time, and exits non-zero with a stable `build_*` code when a
 target, artifact, platform package, skills tree, or release entry is wrong.
 There is no silent skip: an unconfigured step is reported as `skipped`.
+
+`packages/{{name}}/src/native/index.ts` is generated. The `types` step loads the staged
+addon, reads its `__waeTypes` metadata, and renders one file that owns the
+platform-to-package map, the TypeScript interfaces, `loadNative()`, and one
+forwarder per export. Do not edit it by hand and do not import a platform package
+directly: change the Rust `#[function]` / `#[object]` definitions and rebuild.
+Exports are typed, so the boundary needs no hand-written interface or field
+extraction in Rust.
 
 The CLI surface is non-interactive and machine-readable where it mutates state:
 

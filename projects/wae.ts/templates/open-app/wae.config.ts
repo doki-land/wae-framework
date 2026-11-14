@@ -5,7 +5,7 @@
  * cannot run commands, spawn processes, or branch on `process.env`. Every
  * relative path resolves against this directory.
  *
- * `wae build` runs `native → ts → ui → skills → staging` in that order and
+ * `wae build` runs `native → types → ts → ui → skills → staging` in that order and
  * fails with a stable `build_*` code instead of skipping a missing artifact.
  */
 import { defineConfig } from '@wae/wae';
@@ -36,6 +36,10 @@ export default defineConfig({
         },
     ],
     build: {
+        // Renders one `src/native/index.ts` from the staged addon's `__waeTypes`
+        // metadata: platform map, types and forwarders. The platform package
+        // stays a plain `.node` carrier and is never imported by product code.
+        types: { package: '@wae/{{name}}', out: 'src/native/index.ts' },
         ts: { packages: ['@wae/{{name}}'] },
         ui: { package: '@wae/{{name}}-ui' },
         stage: [
