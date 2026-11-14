@@ -16,6 +16,12 @@ pub mod sys;
 /// 从宿主进程解析 Node-API 符号（模块初始化时调用一次即可）。
 pub use sys::setup;
 
+mod convert;
+mod meta;
+
+pub use convert::{FromJs, Json, ToJs, js_to_json, json_to_js};
+pub use meta::{FunctionMeta, ParamMeta, TsType, TypeDecl, metadata_json};
+
 use std::{
     ffi::{CStr, CString},
     ptr,
@@ -60,6 +66,14 @@ impl Error {
     /// 是否属于能力或授权拒绝。
     pub fn is_refusal(&self) -> bool {
         self.refused
+    }
+
+    /// 给错误加一层上下文前缀，保留稳定 code 与拒绝标记。
+    ///
+    /// 参数转换用它与调用点组合出 `argument 0 (options): expected object, got number`。
+    pub fn context(mut self, context: impl std::fmt::Display) -> Self {
+        self.message = format!("{context}: {}", self.message);
+        self
     }
 }
 
@@ -248,6 +262,50 @@ impl JsValue {
     pub fn is_undefined(self) -> Result<bool> {
         Ok(self.type_of()? == napi_undefined)
     }
+
+    /// 是否为 JS 数组。
+    pub fn is_array(self) -> Result<bool> {
+        let mut result = false;
+        check(unsafe { napi_is_array(self.env.raw(), self.value, &mut result) })?;
+        Ok(result)
+    }
+
+    /// 读取数组下标元素。
+    pub fn element(self, index: u32) -> Result<JsValue> {
+        let mut out = ptr::null_mut();
+        check(unsafe { napi_get_element(self.env.raw(), self.value, index, &mut out) })?;
+        Ok(JsValue { env: self.env, value: out })
+    }
+
+    /// 读取对象自有属性名，返回字符串数组。
+    pub fn property_names(self) -> Result<JsValue> {
+        let mut out = ptr::null_mut();
+        check(unsafe { napi_get_property_names(self.env.raw(), self.value, &mut out) })?;
+        Ok(JsValue { env: self.env, value: out })
+    }
+
+    /// JS 侧类型名，只用于错误文本；无法判别时返回 `unknown`。
+    pub fn describe(self) -> String {
+        let Ok(kind) = self.type_of()
+        else {
+            return "unknown".to_string();
+        };
+        match kind {
+            napi_undefined => "undefined",
+            sys::napi_null => "null",
+            sys::napi_boolean => "boolean",
+            sys::napi_number => "number",
+            sys::napi_string => "string",
+            sys::napi_symbol => "symbol",
+            sys::napi_function => "function",
+            sys::napi_external => "external",
+            sys::napi_bigint => "bigint",
+            sys::napi_object if self.is_array().unwrap_or(false) => "array",
+            sys::napi_object => "object",
+            _ => "unknown",
+        }
+        .to_string()
+    }
 }
 
 /// 原生 JS 回调的参数与环境。
@@ -259,14 +317,27 @@ pub struct CallContext {
 impl CallContext {
     /// 由原始 Node-API 回调信息构造调用上下文。
     ///
+    /// 参数数量按实际传入值决定：先按 8 个取，若恰好填满则扩容重取，仍填满则显式失败，
+    /// 不再静默截断第 17 个及以后的参数。
+    ///
     /// # Safety
     /// 在回调存活期间，`env` 与 `info` 必须有效。
     pub unsafe fn from_callback_info(env: napi_env, info: napi_callback_info) -> Result<Self> {
-        let mut argc = 16usize;
-        let mut argv = [ptr::null_mut(); 16];
+        let mut argc = 8usize;
+        let mut argv = [ptr::null_mut(); 8];
         check(unsafe { napi_get_cb_info(env, info, &mut argc, argv.as_mut_ptr(), ptr::null_mut(), ptr::null_mut()) })?;
+        let mut args = argv[..argc].to_vec();
+        if argc == argv.len() {
+            let mut wide = 64usize;
+            let mut buffer = [ptr::null_mut(); 64];
+            check(unsafe { napi_get_cb_info(env, info, &mut wide, buffer.as_mut_ptr(), ptr::null_mut(), ptr::null_mut()) })?;
+            if wide == buffer.len() {
+                return Err(Error::new("too many arguments: the call received 64 or more"));
+            }
+            args = buffer[..wide].to_vec();
+        }
         let env = Env::from_raw(env);
-        let args = argv[..argc.min(16)].iter().copied().map(|value| JsValue::from_raw(env, value)).collect();
+        let args = args.into_iter().map(|value| JsValue::from_raw(env, value)).collect();
         Ok(Self { env, args })
     }
 
@@ -303,6 +374,23 @@ pub fn register_exports(
         exports.set_named(name, func)?;
     }
     Ok(exports.raw())
+}
+
+/// 注册 Node addon 导出，同时挂上 `__waeTypes` 类型元数据。
+///
+/// `__waeTypes` 是下划线隐藏面：`@wae/wae` 的 `types` 构建步与 `wae doctor` 读它，
+/// 不属于公开 API 文档。
+pub fn register_exports_with_types(
+    env: napi_env,
+    exports: napi_value,
+    methods: &[(&str, unsafe extern "C" fn(napi_env, napi_callback_info) -> napi_value)],
+    metas: &[fn() -> FunctionMeta],
+) -> Result<napi_value> {
+    let raw = register_exports(env, exports, methods)?;
+    let env = Env::from_raw(env);
+    let types = metadata_json(metas);
+    JsValue::from_raw(env, raw).set_named("__waeTypes", env.string(&types)?)?;
+    Ok(raw)
 }
 
 /// 从 JS 对象参数中读取可选字符串属性。

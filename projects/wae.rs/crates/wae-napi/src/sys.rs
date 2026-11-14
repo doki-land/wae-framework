@@ -22,7 +22,11 @@ pub const napi_null: i32 = 1;
 pub const napi_boolean: i32 = 2;
 pub const napi_number: i32 = 3;
 pub const napi_string: i32 = 4;
+pub const napi_symbol: i32 = 5;
 pub const napi_object: i32 = 6;
+pub const napi_function: i32 = 7;
+pub const napi_external: i32 = 8;
+pub const napi_bigint: i32 = 9;
 
 pub type napi_callback = Option<unsafe extern "C" fn(env: napi_env, info: napi_callback_info) -> napi_value>;
 
@@ -46,6 +50,9 @@ type FnSetElement = unsafe extern "C" fn(napi_env, napi_value, u32, napi_value) 
 type FnThrowError = unsafe extern "C" fn(napi_env, *const c_char, *const c_char) -> napi_status;
 type FnGetUndefined = unsafe extern "C" fn(napi_env, *mut napi_value) -> napi_status;
 type FnGetNull = unsafe extern "C" fn(napi_env, *mut napi_value) -> napi_status;
+type FnIsArray = unsafe extern "C" fn(napi_env, napi_value, *mut bool) -> napi_status;
+type FnGetElement = unsafe extern "C" fn(napi_env, napi_value, u32, *mut napi_value) -> napi_status;
+type FnGetPropertyNames = unsafe extern "C" fn(napi_env, napi_value, *mut napi_value) -> napi_status;
 
 // Typed stubs matching each function signature.
 unsafe extern "C" fn stub_get_cb_info(
@@ -138,6 +145,18 @@ unsafe extern "C" fn stub_get_null(_: napi_env, _: *mut napi_value) -> napi_stat
     eprintln!("Node-API symbol napi_get_null has not been loaded");
     1
 }
+unsafe extern "C" fn stub_is_array(_: napi_env, _: napi_value, _: *mut bool) -> napi_status {
+    eprintln!("Node-API symbol napi_is_array has not been loaded");
+    1
+}
+unsafe extern "C" fn stub_get_element(_: napi_env, _: napi_value, _: u32, _: *mut napi_value) -> napi_status {
+    eprintln!("Node-API symbol napi_get_element has not been loaded");
+    1
+}
+unsafe extern "C" fn stub_get_property_names(_: napi_env, _: napi_value, _: *mut napi_value) -> napi_status {
+    eprintln!("Node-API symbol napi_get_property_names has not been loaded");
+    1
+}
 
 struct NapiTable {
     napi_get_cb_info: FnGetCbInfo,
@@ -159,6 +178,9 @@ struct NapiTable {
     napi_throw_error: FnThrowError,
     napi_get_undefined: FnGetUndefined,
     napi_get_null: FnGetNull,
+    napi_is_array: FnIsArray,
+    napi_get_element: FnGetElement,
+    napi_get_property_names: FnGetPropertyNames,
 }
 
 static mut NAPI: NapiTable = NapiTable {
@@ -181,6 +203,9 @@ static mut NAPI: NapiTable = NapiTable {
     napi_throw_error: stub_throw_error,
     napi_get_undefined: stub_get_undefined,
     napi_get_null: stub_get_null,
+    napi_is_array: stub_is_array,
+    napi_get_element: stub_get_element,
+    napi_get_property_names: stub_get_property_names,
 };
 
 static HOST: OnceLock<Library> = OnceLock::new();
@@ -248,6 +273,9 @@ unsafe fn fill_table(host: &Library) {
     load_one!(napi_throw_error, b"napi_throw_error\0", FnThrowError);
     load_one!(napi_get_undefined, b"napi_get_undefined\0", FnGetUndefined);
     load_one!(napi_get_null, b"napi_get_null\0", FnGetNull);
+    load_one!(napi_is_array, b"napi_is_array\0", FnIsArray);
+    load_one!(napi_get_element, b"napi_get_element\0", FnGetElement);
+    load_one!(napi_get_property_names, b"napi_get_property_names\0", FnGetPropertyNames);
 }
 
 /// Resolve N-API symbols from the host. Idempotent; call from module init.
@@ -376,4 +404,19 @@ pub unsafe fn napi_get_undefined(env: napi_env, result: *mut napi_value) -> napi
 #[inline]
 pub unsafe fn napi_get_null(env: napi_env, result: *mut napi_value) -> napi_status {
     (NAPI.napi_get_null)(env, result)
+}
+
+#[inline]
+pub unsafe fn napi_is_array(env: napi_env, value: napi_value, result: *mut bool) -> napi_status {
+    (NAPI.napi_is_array)(env, value, result)
+}
+
+#[inline]
+pub unsafe fn napi_get_element(env: napi_env, object: napi_value, index: u32, result: *mut napi_value) -> napi_status {
+    (NAPI.napi_get_element)(env, object, index, result)
+}
+
+#[inline]
+pub unsafe fn napi_get_property_names(env: napi_env, object: napi_value, result: *mut napi_value) -> napi_status {
+    (NAPI.napi_get_property_names)(env, object, result)
 }
