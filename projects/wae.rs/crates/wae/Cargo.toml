@@ -36,3 +36,6 @@ wae-webview-macos = { path = "../wae-webview-macos", optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 wae-webview-linux = { path = "../wae-webview-linux", optional = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

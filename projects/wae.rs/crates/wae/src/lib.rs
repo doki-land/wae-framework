@@ -21,7 +21,7 @@
 
 pub use wae_napi::*;
 
-pub use wae_macros::{function, register_module};
+pub use wae_macros::{function, object, register_module};
 
 /// `wae::webview`：按编译目标选择 WebView 后端（feature `webview`，默认开启）。
 ///
