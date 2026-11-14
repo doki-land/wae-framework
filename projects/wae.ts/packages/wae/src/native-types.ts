@@ -229,7 +229,6 @@ export function renderNativeModule(metadata: NativeMetadata, targets: NativeType
         }
         seen.add(entry.js_name);
     }
-
     const addonMap = [...targets]
         .sort((left, right) => `${left.platform}-${left.arch}`.localeCompare(`${right.platform}-${right.arch}`))
         .map((target) => `    '${target.platform}-${target.arch}': '${target.package}',`)
@@ -239,7 +238,7 @@ export function renderNativeModule(metadata: NativeMetadata, targets: NativeType
     const typeBlocks = blocks.join('\n\n');
 
     const methodLines = [...exports.map((entry) => `    ${signature(entry)};`), ...classes.map(classMember)].join('\n');
-    const forwarders = exports.map((entry) => forwarder(entry)).join('\n\n');
+    const forwarders = [...exports.map((entry) => forwarder(entry)), ...classes.map(classWrapper)].join('\n\n');
 
     return `${HEADER}
 
@@ -295,17 +294,60 @@ function paramsText(params: NativeParamMeta[]): string {
     return params.map((param) => `${param.name}${param.optional ? '?' : ''}: ${param.ts}`).join(', ');
 }
 
+/** Interface name of the raw native instance; the public class shadows it. */
+function nativeInterfaceName(entry: NativeClassMeta): string {
+    return `Native${entry.js_name}`;
+}
+
 function classBlock(entry: NativeClassMeta): string {
     const members = entry.methods
         .map((method) => (method.kind === 'getter'
             ? `    readonly ${method.js_name}: ${method.returns}`
             : `    ${method.js_name}(${paramsText(method.params)}): ${method.returns}`))
         .join('\n');
-    return `export interface ${entry.js_name} {\n${members}\n}`;
+    return `/** Raw instance shape of \`${entry.js_name}\`; use the class below. */\nexport interface ${nativeInterfaceName(entry)} {\n${members}\n}`;
 }
 
 function classMember(entry: NativeClassMeta): string {
-    return `    ${entry.js_name}: { new (${paramsText(entry.constructor)}): ${entry.js_name} };`;
+    return `    ${entry.js_name}: { new (${paramsText(entry.constructor)}): ${nativeInterfaceName(entry)} };`;
+}
+
+/**
+ * Public class that lazily delegates to the addon.
+ *
+ * The native instance is kept in a module-level `WeakMap` instead of a private
+ * field, so generated code stays valid below ES2022 and does not leak an extra
+ * property on instances.
+ */
+function classWrapper(entry: NativeClassMeta): string {
+    const target = nativeInterfaceName(entry);
+    const store = `${entry.js_name.toUpperCase()}_INSTANCES`;
+    const ctorArgs = paramsText(entry.constructor);
+    const ctorNames = entry.constructor.map((param) => param.name).join(', ');
+    const members = entry.methods
+        .map((method) => {
+            const args = paramsText(method.params);
+            const names = method.params.map((param) => param.name).join(', ');
+            if (method.kind === 'getter') {
+                return `    get ${method.js_name}(): ${method.returns} {
+        return ${store}.get(this)!.${method.js_name};
+    }`;
+            }
+            return `    ${method.js_name}(${args}): ${method.returns} {
+        return ${store}.get(this)!.${method.js_name}(${names});
+    }`;
+        })
+        .join('\n\n');
+    return `const ${store} = new WeakMap<object, ${target}>();
+
+/** Exported by the Rust addon; loads the addon on first construction. */
+export class ${entry.js_name} {
+    constructor(${ctorArgs}) {
+        ${store}.set(this, new (loadNative().${entry.js_name})(${ctorNames}));
+    }
+
+${members}
+}`;
 }
 
 function forwarder(entry: NativeExportMeta): string {

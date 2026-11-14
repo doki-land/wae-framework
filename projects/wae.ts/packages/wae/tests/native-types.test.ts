@@ -87,7 +87,7 @@ test('an async export returns a Promise', () => {
     assert.match(text, /export function probeAsync\(\): Promise<ProbeReport> \{/);
 });
 
-test('a class renders as an interface plus a constructor member', () => {
+test('a class renders as a native interface, a lazy class and a constructor member', () => {
     const value = metadata();
     value.exports = [];
     value.types = [];
@@ -102,8 +102,13 @@ test('a class renders as an interface plus a constructor member', () => {
         },
     ];
     const text = renderNativeModule(value, targets);
-    assert.match(text, /export interface Counter \{\n    add\(n: number\): number\n    readonly value: number\n\}/);
-    assert.match(text, /    Counter: \{ new \(start: number\): Counter \};/);
+    assert.match(text, /export interface NativeCounter \{\n    add\(n: number\): number\n    readonly value: number\n\}/);
+    assert.match(text, /    Counter: \{ new \(start: number\): NativeCounter \};/);
+    assert.match(text, /const COUNTER_INSTANCES = new WeakMap<object, NativeCounter>\(\);/);
+    assert.match(text, /export class Counter \{\n    constructor\(start: number\) \{/);
+    assert.match(text, /COUNTER_INSTANCES\.set\(this, new \(loadNative\(\)\.Counter\)\(start\)\);/);
+    assert.match(text, /    add\(n: number\): number \{\n        return COUNTER_INSTANCES\.get\(this\)!\.add\(n\);/);
+    assert.match(text, /    get value\(\): number \{\n        return COUNTER_INSTANCES\.get\(this\)!\.value;/);
 });
 
 test('metadata must carry a JSON payload with exports and types', () => {
