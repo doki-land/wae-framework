@@ -32,15 +32,16 @@ pub struct Store {
     dir: PathBuf,
     stem: String,
     max_bytes: u64,
+    max_files: usize,
     lock: Mutex<()>,
 }
 
 impl Store {
-    /// 以目录、应用名与轮转阈值创建存储。
+    /// 以目录、应用名、轮转阈值与轮转文件保留数创建存储。
     ///
-    /// `max_bytes` 为 0 时按 1 处理。
-    pub fn new(dir: impl Into<PathBuf>, app: &str, max_bytes: u64) -> Self {
-        Self { dir: dir.into(), stem: file_stem(app), max_bytes: max_bytes.max(1), lock: Mutex::new(()) }
+    /// `max_bytes` 为 0 时按 1 处理；`max_files` 为 0 时按 1 处理。
+    pub fn new(dir: impl Into<PathBuf>, app: &str, max_bytes: u64, max_files: usize) -> Self {
+        Self { dir: dir.into(), stem: file_stem(app), max_bytes: max_bytes.max(1), max_files: max_files.max(1), lock: Mutex::new(()) }
     }
 
     /// 当前（未轮转）审计文件路径。
@@ -114,6 +115,43 @@ impl Store {
         let sequence = self.next_sequence()?;
         let target = self.dir.join(format!("{}.{}.jsonl", self.stem, sequence));
         fs::rename(current, target)?;
+        self.prune()?;
+        Ok(())
+    }
+
+    /// 轮转后删除最旧的轮转文件，把保留数压回 `max_files`。
+    ///
+    /// 只处理本存储目录下 `{stem}.{n}.jsonl` 形态的文件，序号最小者先删；
+    /// 当前活动文件永不删除。
+    fn prune(&self) -> AuditResult<()> {
+        let mut sequences: Vec<u64> = Vec::new();
+        for entry in fs::read_dir(&self.dir)? {
+            let entry = entry?;
+            if !entry.path().is_file() {
+                continue;
+            }
+            let name = entry.file_name();
+            let Some(name) = name.to_str()
+            else {
+                continue;
+            };
+            if let Some(sequence) = rotated_sequence(name, &self.stem) {
+                sequences.push(sequence);
+            }
+        }
+        if sequences.len() <= self.max_files {
+            return Ok(());
+        }
+        sequences.sort_unstable();
+        let drop_count = sequences.len() - self.max_files;
+        for sequence in &sequences[..drop_count] {
+            let path = self.dir.join(format!("{}.{}.jsonl", self.stem, sequence));
+            match fs::remove_file(&path) {
+                Ok(()) => {}
+                Err(err) if err.kind() == ErrorKind::NotFound => {}
+                Err(err) => return Err(err.into()),
+            }
+        }
         Ok(())
     }
 
@@ -195,5 +233,24 @@ mod tests {
         assert_eq!(rotated_sequence("demo.jsonl", "demo"), None);
         assert_eq!(rotated_sequence("demo.x.jsonl", "demo"), None);
         assert_eq!(rotated_sequence("other.3.jsonl", "demo"), None);
+    }
+
+    #[test]
+    fn rotation_prunes_oldest_files_to_max_files() {
+        let dir = std::env::temp_dir().join(format!("wae-audit-prune-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let store = Store::new(&dir, "prune-demo", 64, 3);
+        for index in 0..40 {
+            store.append_line(&format!("{{\"n\":{index}}}")).unwrap();
+        }
+        let rotated: Vec<String> = fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().to_string())
+            .filter(|name| name != "prune-demo.jsonl")
+            .collect();
+        assert!(rotated.len() <= 3, "rotated files: {rotated:?}");
+        assert!(dir.join("prune-demo.jsonl").is_file(), "the active file is never pruned");
+        let _ = fs::remove_dir_all(&dir);
     }
 }

@@ -31,6 +31,11 @@ pub const SCHEMA: &str = "wae.audit/v0";
 /// 默认单文件轮转阈值（8 MiB）。
 pub const DEFAULT_MAX_BYTES: u64 = 8 * 1024 * 1024;
 
+/// 轮转文件默认保留个数；超出时删除最旧的轮转文件。
+///
+/// 可由环境变量 `WAE_AUDIT_MAX_FILES` 覆盖。
+pub const DEFAULT_MAX_FILES: usize = 16;
+
 /// 调用者身份类型。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -218,6 +223,7 @@ impl Auditor {
             session: None,
             dir: None,
             max_bytes: DEFAULT_MAX_BYTES,
+            max_files: DEFAULT_MAX_FILES,
         }
     }
 
@@ -297,6 +303,7 @@ pub struct AuditorBuilder {
     session: Option<String>,
     dir: Option<PathBuf>,
     max_bytes: u64,
+    max_files: usize,
 }
 
 impl AuditorBuilder {
@@ -330,13 +337,20 @@ impl AuditorBuilder {
         self
     }
 
+    /// 覆盖轮转文件保留个数。
+    pub fn max_files(mut self, max_files: usize) -> Self {
+        self.max_files = max_files;
+        self
+    }
+
     /// 构造审计器。
     pub fn build(self) -> Auditor {
         let actor = self.actor.unwrap_or_else(Actor::from_env);
         let host = self.host.unwrap_or_else(default_host);
         let session = self.session.unwrap_or_else(default_session);
         let dir = self.dir.unwrap_or_else(default_dir);
-        let store = Store::new(dir, &self.app, self.max_bytes);
+        let max_files = env_text("WAE_AUDIT_MAX_FILES").and_then(|text| text.parse::<usize>().ok()).unwrap_or(self.max_files);
+        let store = Store::new(dir, &self.app, self.max_bytes, max_files);
         Auditor { app: self.app, app_version: self.app_version, actor, host, session, store }
     }
 }
