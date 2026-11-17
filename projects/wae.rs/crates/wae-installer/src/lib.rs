@@ -32,12 +32,19 @@ mod cfb;
 #[allow(dead_code)]
 mod crc32;
 pub mod error;
+mod md5;
+pub mod msi;
 pub mod spec;
+#[allow(dead_code)]
+mod tables;
+pub mod verify;
 pub mod writer;
 
 pub use error::{InstallerError, Platform, Result, codes, current_platform};
+pub use msi::write_msi;
 pub use spec::{
     ArpMeta, DebOptions, DirKey, InstallerSpec, MsiOptions, MsixOptions, PayloadFile, ProductMeta, RpmOptions, Scope, Shortcut,
     is_exact_version, is_guid_text, spec_codes,
 };
+pub use verify::verify_msi;
 pub use writer::{FormatId, InstallerWriter, WriteReport};
