@@ -50,9 +50,9 @@ use windows::{
                 GetWindowLongPtrW, HTCAPTION, HTCLIENT, ICON_BIG, ICON_SMALL, IDC_ARROW, IMAGE_ICON, IsIconic, IsWindow, IsZoomed,
                 LR_LOADFROMFILE, LoadCursorW, LoadImageW, MSG, PM_REMOVE, PeekMessageW, PostQuitMessage, RegisterClassW, SW_MAXIMIZE,
                 SW_MINIMIZE, SW_RESTORE, SW_SHOW, SW_SHOWNORMAL, SWP_NOACTIVATE, SWP_NOZORDER, SendMessageW, SetForegroundWindow,
-                SetWindowLongPtrW, SetWindowPos, ShowWindow, TranslateMessage, WINDOW_EX_STYLE, WINDOW_STYLE, WM_ACTIVATE, WM_CLOSE, WM_CREATE,
-                WM_DESTROY, WM_DPICHANGED, WM_DROPFILES, WM_KEYDOWN, WM_NCHITTEST, WM_QUIT, WM_SETICON, WM_SIZE, WNDCLASSW, WS_CAPTION,
-                WS_OVERLAPPEDWINDOW,
+                SetWindowLongPtrW, SetWindowPos, ShowWindow, TranslateMessage, WINDOW_EX_STYLE, WM_ACTIVATE, WM_CLOSE, WM_CREATE,
+                WM_DESTROY, WM_DPICHANGED, WM_DROPFILES, WM_KEYDOWN, WM_NCHITTEST, WM_QUIT, WM_SETICON, WM_SIZE, WNDCLASSW,
+                WS_CLIPCHILDREN, WS_CLIPSIBLINGS, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_OVERLAPPEDWINDOW, WS_POPUP, WS_SYSMENU, WS_THICKFRAME,
             },
         },
     },
@@ -1055,7 +1055,14 @@ impl WebViewBackend for Win32Backend {
             let initial_dpi = dpi::system_dpi();
             // frameless：只摘掉 caption，保留缩放边框、最小化/最大化按钮样式与系统菜单，
             // 拖拽与双击最大化由页面标题栏上报的 `drag_regions` 命中测试承担。
-            let style = if options.decorations { WS_OVERLAPPEDWINDOW } else { WINDOW_STYLE(WS_OVERLAPPEDWINDOW.0 & !WS_CAPTION.0) };
+            let style = if options.decorations {
+                WS_OVERLAPPEDWINDOW
+            } else {
+                // Win11 会给 overlapped 窗口静默补回 WS_CAPTION；WS_POPUP 不受影响。
+                // 保留 WS_THICKFRAME 与 min/max box：缩放边框与 Snap 仍可用，
+                // 拖拽与双击最大化由页面标题栏上报的 `drag_regions` 命中测试承担。
+                WS_POPUP | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU | WS_CLIPSIBLINGS | WS_CLIPCHILDREN
+            };
             let (width, height) = dpi::client_to_window_size(options.width, options.height, style, WINDOW_EX_STYLE(0), initial_dpi);
             let (width, height) = match dpi::primary_work_area() {
                 Some(area) => (width.min(area.right - area.left), height.min(area.bottom - area.top)),
