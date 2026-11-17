@@ -13,3 +13,6 @@ publish = false
 serde = { workspace = true }
 serde_json = { workspace = true }
 wae-webview = { path = "../wae-webview" }
+
+[target.'cfg(windows)'.dev-dependencies]
+wae-webview-win32 = { path = "../wae-webview-win32" }

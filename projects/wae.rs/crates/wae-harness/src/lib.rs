@@ -11,8 +11,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use wae_webview::{
-    automation_codes, AutomationId, CaptureOutcome, IpcHandler, OpenOptions, Result as WebViewResult, ScriptOutcome, WebViewBackend,
-    WebViewError, WebViewHost,
+    automation_codes, AutomationId, CaptureOutcome, IpcHandler, OpenOptions, ScriptOutcome, WebViewBackend, WebViewError, WebViewHost,
 };
 
 /// 单次操作默认超时。
@@ -397,7 +396,7 @@ mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
 
-    use wae_webview::{IpcOutcome, IpcSink, Platform};
+    use wae_webview::{IpcOutcome, IpcSink, Platform, Result as WebViewResult};
 
     /// 假后端：记录脚本，第 `complete_after` 次 pump 后产出结果。
     struct FakeBackend {
