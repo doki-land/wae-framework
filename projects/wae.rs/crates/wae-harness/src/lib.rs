@@ -18,8 +18,17 @@ use wae_webview::{
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 /// 轮询间隔；避免把窗口消息循环打满。
 const POLL_INTERVAL: Duration = Duration::from_millis(5);
-/// 单次 `wait_for` 求值的最长等待；避免一次求值吃掉整个超时预算。
-const EVAL_SLICE: Duration = Duration::from_millis(500);
+
+/// JS truthiness：`false`、`null`、`0`、`""` 为假，其余为真。
+fn is_truthy(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::Null => false,
+        serde_json::Value::Bool(inner) => *inner,
+        serde_json::Value::Number(inner) => inner.as_f64().is_some_and(|raw| raw != 0.0),
+        serde_json::Value::String(inner) => !inner.is_empty(),
+        _ => true,
+    }
+}
 
 /// harness 失败分类；`code()` 是稳定字符串。
 #[derive(Debug)]
@@ -131,17 +140,35 @@ impl<B: WebViewBackend> Harness<B> {
         self.eval_within(script, Instant::now() + timeout)
     }
 
-    /// 轮询表达式直到结果为 `true`；超时错误携带最后一次结果。
+    /// 轮询表达式直到结果为 truthy；超时错误携带最后一次结果。
+    ///
+    /// 单次脚本回包慢不是失败：结果仍在飞行时保留同一个 `id` 继续回收，
+    /// 直到整体 deadline 才报 `harness_timeout`，也不重复发起执行。
     pub fn wait_for(&mut self, script: &str, timeout: Duration) -> Result<serde_json::Value> {
         let deadline = Instant::now() + timeout;
+        let mut pending: Option<AutomationId> = None;
+        let mut last = serde_json::Value::Null;
         loop {
-            let slice = (Instant::now() + EVAL_SLICE).min(deadline);
-            let value = self.eval_within(script, slice)?;
-            if value == serde_json::Value::Bool(true) {
-                return Ok(value);
+            let id = match pending.take() {
+                Some(id) => id,
+                None => self.host.evaluate(script)?,
+            };
+            match self.wait_script(id, deadline) {
+                Ok(outcome) => match outcome.error {
+                    Some(error) => return Err(HarnessError::Script { code: error.code, message: error.message }),
+                    None => {
+                        let value = outcome.value.unwrap_or(serde_json::Value::Null);
+                        if is_truthy(&value) {
+                            return Ok(value);
+                        }
+                        last = value;
+                    }
+                },
+                Err(HarnessError::Timeout { .. }) => pending = Some(id),
+                Err(error) => return Err(error),
             }
             if Instant::now() >= deadline {
-                return Err(HarnessError::Timeout { script: script.to_owned(), last: value });
+                return Err(HarnessError::Timeout { script: script.to_owned(), last });
             }
             self.pump_once()?;
             std::thread::sleep(POLL_INTERVAL);
@@ -446,6 +473,9 @@ mod tests {
                 let value = if script.contains("'pending'") {
                     serde_json::Value::Bool(false)
                 }
+                else if script.contains("'truthy-string'") {
+                    serde_json::Value::String("complete".to_owned())
+                }
                 else {
                     self.reply.clone().unwrap_or(serde_json::Value::Null)
                 };
@@ -507,6 +537,13 @@ mod tests {
         let error = harness.wait_for("'pending'", Duration::from_millis(60)).expect_err("must time out");
         assert_eq!(error.code(), "harness_timeout");
         assert!(error.to_string().contains("false"), "unexpected error: {error}");
+    }
+
+    #[test]
+    fn wait_for_accepts_truthy_non_boolean() {
+        let mut harness = harness();
+        let value = harness.wait_for("'truthy-string' ? 'truthy-string' : ''", Duration::from_millis(500)).expect("truthy string must pass");
+        assert_eq!(value, serde_json::Value::String("complete".to_owned()));
     }
 
     #[test]
