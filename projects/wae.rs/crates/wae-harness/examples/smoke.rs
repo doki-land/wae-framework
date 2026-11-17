@@ -17,11 +17,7 @@ fn main() {
         }
     }
 
-    let options = OpenOptions::from_url(
-        "data:text/html,<title>smoke</title><h1 id=title>harness</h1>",
-        "wae-harness smoke",
-    )
-    .with_hidden(true);
+    let options = OpenOptions::from_url("data:text/html,<title>smoke</title><h1 id=title>harness</h1>", "wae-harness smoke").with_hidden(true);
     let mut harness = match Harness::<Win32Backend>::open(options, Box::new(Noop)) {
         Ok(harness) => harness,
         Err(error) => {

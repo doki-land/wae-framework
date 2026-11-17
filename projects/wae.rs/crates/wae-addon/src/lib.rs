@@ -232,10 +232,7 @@ fn harness_error(error: wae::harness::HarnessError) -> Error {
 fn with_harness<T>(handle: u64, run: impl FnOnce(&mut wae::harness::PlatformHarness) -> Result<T>) -> Result<T> {
     HARNESSES.with(|registry| {
         let mut registry = registry.borrow_mut();
-        let entry = registry
-            .entries
-            .get_mut(&handle)
-            .ok_or_else(|| Error::invalid_input(format!("unknown harness handle {handle}")))?;
+        let entry = registry.entries.get_mut(&handle).ok_or_else(|| Error::invalid_input(format!("unknown harness handle {handle}")))?;
         run(&mut entry.harness)
     })
 }
@@ -271,32 +268,21 @@ fn harness_eval(handle: u64, script: String) -> Result<String> {
 /// 轮询脚本直到结果为 `true`，超时返回结构化错误。
 #[function(js_name = "harnessWaitFor")]
 fn harness_wait_for(handle: u64, script: String, timeout_ms: u64) -> Result<String> {
-    let value = with_harness(handle, |harness| {
-        harness.wait_for(&script, Duration::from_millis(timeout_ms.max(1))).map_err(harness_error)
-    })?;
+    let value = with_harness(handle, |harness| harness.wait_for(&script, Duration::from_millis(timeout_ms.max(1))).map_err(harness_error))?;
     serde_json::to_string(&value).map_err(|error| Error::new(error.to_string()))
 }
 
 /// 截图写入 `path`，返回实际文件路径。
 #[function(js_name = "harnessScreenshot")]
 fn harness_screenshot(handle: u64, path: String) -> Result<String> {
-    let written = with_harness(handle, |harness| {
-        harness.screenshot(std::path::Path::new(&path)).map_err(harness_error)
-    })?;
+    let written = with_harness(handle, |harness| harness.screenshot(std::path::Path::new(&path)).map_err(harness_error))?;
     Ok(written.display().to_string())
 }
 
 /// 驱动一次消息泵；窗口已销毁返回 `false`。
 #[function(js_name = "harnessPump")]
 fn harness_pump(handle: u64) -> Result<bool> {
-    with_harness(handle, |harness| {
-        if harness.host_mut().pump() {
-            Ok(true)
-        }
-        else {
-            Ok(false)
-        }
-    })
+    with_harness(handle, |harness| if harness.host_mut().pump() { Ok(true) } else { Ok(false) })
 }
 
 /// 向页面投递一条字符串消息。
@@ -310,10 +296,7 @@ fn harness_post(handle: u64, text: String) -> Result<()> {
 fn harness_take_ipc(handle: u64) -> Result<String> {
     let messages: Vec<String> = HARNESSES.with(|registry| -> Result<Vec<String>> {
         let registry = registry.borrow();
-        let entry = registry
-            .entries
-            .get(&handle)
-            .ok_or_else(|| Error::invalid_input(format!("unknown harness handle {handle}")))?;
+        let entry = registry.entries.get(&handle).ok_or_else(|| Error::invalid_input(format!("unknown harness handle {handle}")))?;
         let mut queue = entry.ipc.lock().expect("harness ipc queue");
         Ok(queue.drain(..).collect::<Vec<String>>())
     })?;

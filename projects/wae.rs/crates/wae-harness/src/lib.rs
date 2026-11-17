@@ -5,13 +5,15 @@
 //!
 //! 所有等待都驱动 `WebViewHost::pump()`，不在其它线程碰窗口，也不忙等。
 
-use std::io::{BufRead, BufReader, Write};
-use std::net::TcpListener;
-use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::{
+    io::{BufRead, BufReader, Write},
+    net::TcpListener,
+    path::{Path, PathBuf},
+    time::{Duration, Instant},
+};
 
 use wae_webview::{
-    automation_codes, AutomationId, CaptureOutcome, IpcHandler, OpenOptions, ScriptOutcome, WebViewBackend, WebViewError, WebViewHost,
+    AutomationId, CaptureOutcome, IpcHandler, OpenOptions, ScriptOutcome, WebViewBackend, WebViewError, WebViewHost, automation_codes,
 };
 
 /// 单次操作默认超时。
@@ -197,10 +199,7 @@ impl<B: WebViewBackend> Harness<B> {
                 return finish_capture(outcome);
             }
             if Instant::now() >= deadline {
-                return Err(HarnessError::Timeout {
-                    script: format!("screenshot({})", path.display()),
-                    last: serde_json::Value::Null,
-                });
+                return Err(HarnessError::Timeout { script: format!("screenshot({})", path.display()), last: serde_json::Value::Null });
             }
             self.pump_once()?;
             std::thread::sleep(POLL_INTERVAL);
@@ -230,10 +229,7 @@ impl<B: WebViewBackend> Harness<B> {
                 return Ok(outcome);
             }
             if Instant::now() >= deadline {
-                return Err(HarnessError::Timeout {
-                    script: format!("script#{id}"),
-                    last: serde_json::Value::Null,
-                });
+                return Err(HarnessError::Timeout { script: format!("script#{id}"), last: serde_json::Value::Null });
             }
             self.pump_once()?;
             std::thread::sleep(POLL_INTERVAL);
@@ -242,12 +238,7 @@ impl<B: WebViewBackend> Harness<B> {
 
     /// 驱动一次消息泵；窗口已销毁返回 `WindowClosed`。
     fn pump_once(&mut self) -> Result<()> {
-        if self.host.pump() {
-            Ok(())
-        }
-        else {
-            Err(HarnessError::WindowClosed)
-        }
+        if self.host.pump() { Ok(()) } else { Err(HarnessError::WindowClosed) }
     }
 }
 
@@ -255,10 +246,9 @@ fn finish_capture(outcome: CaptureOutcome) -> Result<PathBuf> {
     match (outcome.path, outcome.error) {
         (Some(path), _) => Ok(path),
         (None, Some(error)) => Err(HarnessError::Capture { code: error.code, message: error.message }),
-        (None, None) => Err(HarnessError::Capture {
-            code: automation_codes::CAPTURE_FAILED,
-            message: "capture completed without a file".into(),
-        }),
+        (None, None) => {
+            Err(HarnessError::Capture { code: automation_codes::CAPTURE_FAILED, message: "capture completed without a file".into() })
+        }
     }
 }
 
@@ -302,11 +292,7 @@ impl ControlResponse {
 }
 
 /// 在给定连接上处理控制请求，直到客户端关闭或发出 `close`。
-pub fn serve_connection<B: WebViewBackend>(
-    harness: &mut Harness<B>,
-    stream: std::net::TcpStream,
-    token: Option<&str>,
-) -> std::io::Result<()> {
+pub fn serve_connection<B: WebViewBackend>(harness: &mut Harness<B>, stream: std::net::TcpStream, token: Option<&str>) -> std::io::Result<()> {
     let mut writer = stream.try_clone()?;
     let mut reader = BufReader::new(stream);
     let mut line = String::new();
@@ -322,13 +308,16 @@ pub fn serve_connection<B: WebViewBackend>(
         let request: ControlRequest = match serde_json::from_str(&line) {
             Ok(request) => request,
             Err(error) => {
-                write_response(&mut writer, &ControlResponse {
-                    id: 0,
-                    ok: false,
-                    value: None,
-                    code: Some("harness_bad_request".into()),
-                    message: Some(error.to_string()),
-                })?;
+                write_response(
+                    &mut writer,
+                    &ControlResponse {
+                        id: 0,
+                        ok: false,
+                        value: None,
+                        code: Some("harness_bad_request".into()),
+                        message: Some(error.to_string()),
+                    },
+                )?;
                 continue;
             }
         };
@@ -336,13 +325,16 @@ pub fn serve_connection<B: WebViewBackend>(
         if let Some(expected) = token
             && request.token.as_deref() != Some(expected)
         {
-            write_response(&mut writer, &ControlResponse {
-                id,
-                ok: false,
-                value: None,
-                code: Some("harness_unauthorized".into()),
-                message: Some("control token mismatch".into()),
-            })?;
+            write_response(
+                &mut writer,
+                &ControlResponse {
+                    id,
+                    ok: false,
+                    value: None,
+                    code: Some("harness_unauthorized".into()),
+                    message: Some("control token mismatch".into()),
+                },
+            )?;
             continue;
         }
         let timeout = Duration::from_millis(request.timeout_ms.unwrap_or(10_000));
@@ -386,13 +378,7 @@ pub fn serve_connection<B: WebViewBackend>(
 }
 
 fn bad_request(id: u64, message: &str) -> ControlResponse {
-    ControlResponse {
-        id,
-        ok: false,
-        value: None,
-        code: Some("harness_bad_request".into()),
-        message: Some(message.to_owned()),
-    }
+    ControlResponse { id, ok: false, value: None, code: Some("harness_bad_request".into()), message: Some(message.to_owned()) }
 }
 
 fn write_response(writer: &mut std::net::TcpStream, response: &ControlResponse) -> std::io::Result<()> {
