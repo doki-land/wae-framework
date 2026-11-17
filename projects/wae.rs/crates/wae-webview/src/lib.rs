@@ -173,6 +173,10 @@ pub enum Capability {
     Screenshot,
     /// 打开窗口但不显示（自动化 harness）。
     HiddenWindow,
+    /// 最小化窗口（自绘标题栏用）。
+    Minimize,
+    /// 在最大化与还原之间切换（自绘标题栏用）。
+    ToggleMaximize,
 }
 
 /// 编译目标平台。
@@ -437,6 +441,16 @@ pub trait WebViewBackend: Sized {
     fn take_capture_result(&mut self, _id: AutomationId) -> Option<CaptureOutcome> {
         None
     }
+
+    /// 最小化窗口；平台缺少该能力时返回结构化 `Unsupported`。
+    fn minimize(&mut self) -> Result<()> {
+        Err(WebViewError::unsupported(Capability::Minimize, Self::PLATFORM))
+    }
+
+    /// 在最大化与还原之间切换；平台缺少该能力时返回结构化 `Unsupported`。
+    fn toggle_maximize(&mut self) -> Result<()> {
+        Err(WebViewError::unsupported(Capability::ToggleMaximize, Self::PLATFORM))
+    }
 }
 
 /// 由外部驱动的 WebView 宿主；`B` 由门面按目标平台选定。
@@ -510,6 +524,16 @@ impl<B: WebViewBackend> WebViewHost<B> {
             return Ok(());
         }
         Err(WebViewError::host(automation_codes::WINDOW_CLOSED, stage, "窗口已销毁，自动化调用被拒绝"))
+    }
+
+    /// 最小化窗口。
+    pub fn minimize(&mut self) -> Result<()> {
+        self.backend.minimize()
+    }
+
+    /// 在最大化与还原之间切换。
+    pub fn toggle_maximize(&mut self) -> Result<()> {
+        self.backend.toggle_maximize()
     }
 
     /// 当前后端名（例如 `win32` / `macos` / `linux`）。

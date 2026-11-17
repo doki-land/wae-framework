@@ -385,10 +385,25 @@ pub fn serve_from_env<B: WebViewBackend>(harness: &mut Harness<B>) -> std::io::R
     };
     let token = std::env::var("WAE_HARNESS_TOKEN").ok().filter(|value| !value.is_empty());
     let listener = TcpListener::bind(("127.0.0.1", port))?;
+    listener.set_nonblocking(true)?;
     println!("wae-harness listening on 127.0.0.1:{port}");
-    let (stream, _) = listener.accept()?;
-    serve_connection(harness, stream, token.as_deref())?;
-    Ok(true)
+    // 等待客户端期间继续驱动窗口消息，否则首屏要等到连接建立后才开始渲染。
+    loop {
+        match listener.accept() {
+            Ok((stream, _)) => {
+                stream.set_nonblocking(false)?;
+                serve_connection(harness, stream, token.as_deref())?;
+                return Ok(true);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                if !harness.host_mut().pump() {
+                    return Ok(true);
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Err(error) => return Err(error),
+        }
+    }
 }
 
 #[cfg(test)]

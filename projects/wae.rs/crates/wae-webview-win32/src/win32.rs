@@ -46,8 +46,9 @@ use windows::{
             Shell::{DragAcceptFiles, DragFinish, DragQueryFileW, HDROP, SHCreateStreamOnFileEx},
             WindowsAndMessaging::{
                 CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GWLP_USERDATA, GetClientRect,
-                GetWindowLongPtrW, ICON_BIG, ICON_SMALL, IDC_ARROW, IMAGE_ICON, IsIconic, IsWindow, LR_LOADFROMFILE, LoadCursorW, LoadImageW,
-                MSG, PM_REMOVE, PeekMessageW, PostQuitMessage, RegisterClassW, SW_RESTORE, SW_SHOW, SW_SHOWNORMAL, SWP_NOACTIVATE,
+                GetWindowLongPtrW, ICON_BIG, ICON_SMALL, IDC_ARROW, IMAGE_ICON, IsIconic, IsWindow, IsZoomed, LR_LOADFROMFILE,
+                LoadCursorW, LoadImageW, MSG, PM_REMOVE, PeekMessageW, PostQuitMessage, RegisterClassW, SW_MAXIMIZE, SW_MINIMIZE,
+                SW_RESTORE, SW_SHOW, SW_SHOWNORMAL, SWP_NOACTIVATE,
                 SWP_NOZORDER, SendMessageW, SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, ShowWindow, TranslateMessage,
                 WINDOW_EX_STYLE, WM_ACTIVATE, WM_CLOSE, WM_CREATE, WM_DESTROY, WM_DPICHANGED, WM_DROPFILES, WM_KEYDOWN, WM_QUIT, WM_SETICON,
                 WM_SIZE, WNDCLASSW, WS_OVERLAPPEDWINDOW,
@@ -1257,5 +1258,27 @@ impl WebViewBackend for Win32Backend {
 
     fn take_capture_result(&mut self, id: AutomationId) -> Option<CaptureOutcome> {
         self.state.take_capture_result(id)
+    }
+
+    fn minimize(&mut self) -> Result<()> {
+        if !self.is_alive() {
+            return Err(WebViewError::host("window_not_alive", "minimize", "窗口已关闭，无法最小化"));
+        }
+        unsafe {
+            let _ = ShowWindow(self.state.hwnd, SW_MINIMIZE);
+        }
+        Ok(())
+    }
+
+    fn toggle_maximize(&mut self) -> Result<()> {
+        if !self.is_alive() {
+            return Err(WebViewError::host("window_not_alive", "toggle_maximize", "窗口已关闭，无法切换最大化"));
+        }
+        let hwnd = self.state.hwnd;
+        let next = if unsafe { IsZoomed(hwnd) }.as_bool() { SW_RESTORE } else { SW_MAXIMIZE };
+        unsafe {
+            let _ = ShowWindow(hwnd, next);
+        }
+        Ok(())
     }
 }
