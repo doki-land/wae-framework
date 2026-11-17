@@ -13,4 +13,6 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-wae = { path = "../wae", default-features = false, features = ["audit"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+wae = { path = "../wae", default-features = false, features = ["audit", "harness"] }

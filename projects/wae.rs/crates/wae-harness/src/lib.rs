@@ -425,7 +425,7 @@ mod tests {
 
         fn pump(&mut self) -> bool {
             self.pumps += 1;
-            if self.pumps % self.complete_after == 0
+            if self.pumps.is_multiple_of(self.complete_after)
                 && let Some((id, script)) = self.scripts.lock().unwrap().pop()
             {
                 let value = if script.contains("'pending'") {

@@ -272,6 +272,15 @@ impl DesktopState {
         else {
             return Err(WebViewError::host("webview_not_ready", "screenshot", "webview 尚未就绪"));
         };
+        // 隐藏窗口从未走显窗路径，合成器可能还没挂上父窗口：第一次 CapturePreview
+        // 会一直等不到首帧。这里复用显窗时的可见性翻转与边界复位唤醒合成器。
+        if let Some(controller) = &self.controller {
+            unsafe {
+                let _ = controller.SetIsVisible(false);
+                let _ = controller.SetIsVisible(true);
+            }
+            self.resize_webview();
+        }
         let wide_path = encode_wide(&path.display().to_string());
         let stream: IStream = unsafe {
             SHCreateStreamOnFileEx(
