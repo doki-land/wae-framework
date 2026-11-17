@@ -10,7 +10,7 @@ description = "WAE Rust 门面库：统一导出 N-API / WebView 与过程宏"
 publish = false
 
 [features]
-default = ["webview", "shell", "audit", "plugins", "harness"]
+default = ["webview", "shell", "audit", "plugins", "harness", "installer"]
 ## 导出 `wae::webview`（按编译目标选择平台后端）
 webview = ["dep:wae-webview", "dep:wae-webview-win32", "dep:wae-webview-macos", "dep:wae-webview-linux"]
 ## 导出 `wae::shell`（系统关联程序启动文件）
@@ -21,6 +21,8 @@ audit = ["dep:wae-audit"]
 plugins = ["dep:wae-plugins"]
 ## 导出 `wae::harness`（进程内自动化与 loopback 控制通道）
 harness = ["dep:wae-harness", "webview"]
+## 导出 `wae::installer`（进程内 OS 安装包封装：MSI / deb / rpm / MSIX）
+installer = ["dep:wae-installer"]
 
 [dependencies]
 wae-napi = { path = "../wae-napi" }
@@ -30,6 +32,7 @@ wae-shell = { path = "../wae-shell", optional = true }
 wae-audit = { path = "../wae-audit", optional = true }
 wae-plugins = { path = "../wae-plugins", optional = true }
 wae-harness = { path = "../wae-harness", optional = true }
+wae-installer = { path = "../wae-installer", optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 wae-webview-win32 = { path = "../wae-webview-win32", optional = true }

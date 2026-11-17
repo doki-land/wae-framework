@@ -268,3 +268,18 @@ pub mod audit {
 pub mod plugins {
     pub use wae_plugins::*;
 }
+
+/// `wae::installer`：进程内 OS 安装包封装（feature `installer`，默认开启）。
+///
+/// 把构建产物（exe + 静态 dist）封装成 `msi` / `deb` / `rpm` / `msix`，
+/// 不调用任何外部 exe/py/sh；Windows 侧经系统 DLL 的 COM/API 在进程内完成。
+/// 未实现格式与跨平台缺能力一律返回结构化
+/// [`InstallerError::Unsupported`]，下游按字段判别，不得用字符串表达不支持。
+///
+/// ```ignore
+/// let report = wae::installer::write_msi(&spec, &wae::installer::MsiOptions::default())?;
+/// ```
+#[cfg(feature = "installer")]
+pub mod installer {
+    pub use wae_installer::*;
+}

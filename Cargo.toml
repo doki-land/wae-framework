@@ -13,6 +13,7 @@ members = [
     "projects/wae.rs/crates/wae-harness",
     "projects/wae.rs/crates/wae-audit",
     "projects/wae.rs/crates/wae-plugins",
+    "projects/wae.rs/crates/wae-installer",
 ]
 default-members = [
     "projects/wae.rs/crates/wae",
@@ -27,6 +28,7 @@ default-members = [
     "projects/wae.rs/crates/wae-harness",
     "projects/wae.rs/crates/wae-audit",
     "projects/wae.rs/crates/wae-plugins",
+    "projects/wae.rs/crates/wae-installer",
 ]
 
 [workspace.package]
