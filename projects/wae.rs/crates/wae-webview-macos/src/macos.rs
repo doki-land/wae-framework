@@ -15,7 +15,7 @@ use objc2_app_kit::{
 use objc2_foundation::{NSDate, NSDefaultRunLoopMode, NSPoint, NSRect, NSSize, NSString, NSURL, NSURLRequest};
 use objc2_web_kit::{WKScriptMessage, WKScriptMessageHandler, WKUserContentController, WKWebView, WKWebViewConfiguration};
 use wae_webview::{
-    IpcHandler, IpcOutcome, IpcSink, MESSAGE_HANDLER_NAME, OpenOptions, Platform, Result, WebViewBackend, WebViewError,
+    Capability, IpcHandler, IpcOutcome, IpcSink, MESSAGE_HANDLER_NAME, OpenOptions, Platform, Result, WebViewBackend, WebViewError,
     page_receive_script,
 };
 
@@ -103,6 +103,10 @@ impl WebViewBackend for MacosBackend {
         };
         if options.content_dir.is_none() && options.url.is_none() {
             return Err(WebViewError::Message("打开 WebView 需要 content_dir 或 url".into()));
+        }
+        // frameless 尚未接线：显式拒绝，不得静默保留原生标题栏。
+        if !options.decorations {
+            return Err(WebViewError::unsupported(Capability::Decorations, Self::PLATFORM));
         }
 
         let app = NSApplication::sharedApplication(mtm);

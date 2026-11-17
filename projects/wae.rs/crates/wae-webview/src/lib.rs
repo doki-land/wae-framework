@@ -70,6 +70,28 @@ pub struct OpenOptions {
     /// 后端无法隐藏窗口时必须返回 [`WebViewError::Unsupported`]
     /// （`Capability::HiddenWindow`），不得静默显示或静默空白。
     pub hidden: bool,
+    /// 是否带原生标题栏与边框装饰；默认 `true`。
+    ///
+    /// 设为 `false` 时窗口不再有原生标题栏，页面自绘标题栏必须经
+    /// [`WebViewHost::set_drag_regions`] 上报可拖拽矩形（客户区逻辑像素），
+    /// 否则窗口无法拖动。平台无法去掉装饰时必须返回 [`WebViewError::Unsupported`]
+    /// （`Capability::Decorations`），不得静默保留原生标题栏。
+    pub decorations: bool,
+}
+
+/// 页面自绘标题栏的拖拽区域（客户区坐标，逻辑像素 / DIP）。
+///
+/// 落在区域内的命中测试按标题栏处理：可拖动窗口，双击最大化 / 还原。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DragRect {
+    /// 区域左缘（客户区逻辑像素）。
+    pub x: i32,
+    /// 区域上缘（客户区逻辑像素）。
+    pub y: i32,
+    /// 区域宽度（逻辑像素）。
+    pub width: i32,
+    /// 区域高度（逻辑像素）。
+    pub height: i32,
 }
 
 impl OpenOptions {
@@ -83,6 +105,7 @@ impl OpenOptions {
             url: None,
             accept_file_drop: false,
             hidden: false,
+            decorations: true,
         }
     }
 
@@ -96,6 +119,7 @@ impl OpenOptions {
             url: Some(url.into()),
             accept_file_drop: false,
             hidden: false,
+            decorations: true,
         }
     }
 
@@ -177,6 +201,10 @@ pub enum Capability {
     Minimize,
     /// 在最大化与还原之间切换（自绘标题栏用）。
     ToggleMaximize,
+    /// 去掉原生标题栏与边框装饰（frameless 窗口）。
+    Decorations,
+    /// 设置页面自绘标题栏的拖拽区域（frameless 窗口用）。
+    DragRegions,
 }
 
 /// 编译目标平台。
@@ -420,6 +448,13 @@ pub trait WebViewBackend: Sized {
     /// 时必须返回 [`WebViewError::Unsupported`]（`Capability::Focus`），不得静默成功。
     fn focus(&mut self) -> Result<()>;
 
+    /// 设置页面自绘标题栏的拖拽矩形（frameless 窗口用）。
+    ///
+    /// 默认实现返回结构化「平台缺少能力」，未接线平台不得伪造成功。
+    fn set_drag_regions(&mut self, _rects: &[DragRect]) -> Result<()> {
+        Err(WebViewError::unsupported(Capability::DragRegions, Self::PLATFORM))
+    }
+
     /// 发起一次页面脚本执行；结果经 [`Self::take_script_result`] 回收。
     ///
     /// 默认实现返回结构化「平台缺少能力」，未接线平台不得伪造成功。
@@ -534,6 +569,12 @@ impl<B: WebViewBackend> WebViewHost<B> {
     /// 在最大化与还原之间切换。
     pub fn toggle_maximize(&mut self) -> Result<()> {
         self.backend.toggle_maximize()
+    }
+
+    /// 设置页面自绘标题栏的拖拽矩形（客户区逻辑像素）；frameless 窗口拖动的前提。
+    pub fn set_drag_regions(&mut self, rects: &[DragRect]) -> Result<()> {
+        self.ensure_alive("set_drag_regions")?;
+        self.backend.set_drag_regions(rects)
     }
 
     /// 当前后端名（例如 `win32` / `macos` / `linux`）。

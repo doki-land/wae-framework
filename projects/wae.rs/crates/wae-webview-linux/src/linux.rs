@@ -16,7 +16,7 @@ use std::{
 
 use libloading::Library;
 use wae_webview::{
-    IpcHandler, IpcOutcome, IpcSink, MESSAGE_HANDLER_NAME, OpenOptions, Platform, Result, WebViewBackend, WebViewError,
+    Capability, IpcHandler, IpcOutcome, IpcSink, MESSAGE_HANDLER_NAME, OpenOptions, Platform, Result, WebViewBackend, WebViewError,
     page_receive_script,
 };
 
@@ -200,6 +200,10 @@ impl WebViewBackend for LinuxBackend {
     fn open(options: OpenOptions, handler: Box<dyn IpcHandler>) -> Result<Self> {
         if options.content_dir.is_none() && options.url.is_none() {
             return Err(WebViewError::Message("打开 WebView 需要 content_dir 或 url".into()));
+        }
+        // frameless 尚未接线：显式拒绝，不得静默保留原生标题栏。
+        if !options.decorations {
+            return Err(WebViewError::unsupported(Capability::Decorations, Self::PLATFORM));
         }
         let libs = Libs::load()?;
 

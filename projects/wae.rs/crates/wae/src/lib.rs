@@ -47,7 +47,7 @@ pub use wae_macros::{class, function, object, register_module};
 #[cfg(feature = "webview")]
 pub mod webview {
     pub use wae_webview::{
-        AutomationError, AutomationId, Capability, CaptureOutcome, IpcHandler, IpcOutcome, IpcSink, OpenOptions, Platform, Result,
+        AutomationError, AutomationId, Capability, CaptureOutcome, DragRect, IpcHandler, IpcOutcome, IpcSink, OpenOptions, Platform, Result,
         ScriptOutcome, WebViewError, automation_codes,
     };
 

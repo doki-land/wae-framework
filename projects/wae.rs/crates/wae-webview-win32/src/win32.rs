@@ -23,8 +23,8 @@ use webview2_com::{
         COREWEBVIEW2_WEB_ERROR_STATUS_CONNECTION_ABORTED, COREWEBVIEW2_WEB_ERROR_STATUS_CONNECTION_RESET,
         COREWEBVIEW2_WEB_ERROR_STATUS_DISCONNECTED, COREWEBVIEW2_WEB_ERROR_STATUS_ERROR_HTTP_INVALID_SERVER_RESPONSE,
         COREWEBVIEW2_WEB_ERROR_STATUS_HOST_NAME_NOT_RESOLVED, COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED,
-        COREWEBVIEW2_WEB_ERROR_STATUS_REDIRECT_FAILED, COREWEBVIEW2_WEB_ERROR_STATUS_SERVER_UNREACHABLE,
-        COREWEBVIEW2_WEB_ERROR_STATUS_TIMEOUT, COREWEBVIEW2_WEB_ERROR_STATUS_UNEXPECTED_ERROR, COREWEBVIEW2_WEB_ERROR_STATUS_UNKNOWN,
+        COREWEBVIEW2_WEB_ERROR_STATUS_REDIRECT_FAILED, COREWEBVIEW2_WEB_ERROR_STATUS_SERVER_UNREACHABLE, COREWEBVIEW2_WEB_ERROR_STATUS_TIMEOUT,
+        COREWEBVIEW2_WEB_ERROR_STATUS_UNEXPECTED_ERROR, COREWEBVIEW2_WEB_ERROR_STATUS_UNKNOWN,
         COREWEBVIEW2_WEB_ERROR_STATUS_VALID_AUTHENTICATION_CREDENTIALS_REQUIRED,
         COREWEBVIEW2_WEB_ERROR_STATUS_VALID_PROXY_AUTHENTICATION_REQUIRED, CreateCoreWebView2EnvironmentWithOptions,
         GetAvailableCoreWebView2BrowserVersionString, ICoreWebView2, ICoreWebView2_3, ICoreWebView2Controller, ICoreWebView2Controller4,
@@ -35,8 +35,9 @@ use webview2_com::{
 use windows::{
     Win32::{
         Foundation::{
-            E_POINTER, E_UNEXPECTED, ERROR_CLASS_ALREADY_EXISTS, GetLastError, HWND, LPARAM, LRESULT, RECT, RPC_E_CHANGED_MODE, WPARAM,
+            E_POINTER, E_UNEXPECTED, ERROR_CLASS_ALREADY_EXISTS, GetLastError, HWND, LPARAM, LRESULT, POINT, RECT, RPC_E_CHANGED_MODE, WPARAM,
         },
+        Graphics::Gdi::ScreenToClient,
         System::{
             Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoTaskMemFree, IStream, STGM_CREATE, STGM_WRITE},
             LibraryLoader::GetModuleHandleW,
@@ -46,12 +47,12 @@ use windows::{
             Shell::{DragAcceptFiles, DragFinish, DragQueryFileW, HDROP, SHCreateStreamOnFileEx},
             WindowsAndMessaging::{
                 CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GWLP_USERDATA, GetClientRect,
-                GetWindowLongPtrW, ICON_BIG, ICON_SMALL, IDC_ARROW, IMAGE_ICON, IsIconic, IsWindow, IsZoomed, LR_LOADFROMFILE,
-                LoadCursorW, LoadImageW, MSG, PM_REMOVE, PeekMessageW, PostQuitMessage, RegisterClassW, SW_MAXIMIZE, SW_MINIMIZE,
-                SW_RESTORE, SW_SHOW, SW_SHOWNORMAL, SWP_NOACTIVATE,
-                SWP_NOZORDER, SendMessageW, SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, ShowWindow, TranslateMessage,
-                WINDOW_EX_STYLE, WM_ACTIVATE, WM_CLOSE, WM_CREATE, WM_DESTROY, WM_DPICHANGED, WM_DROPFILES, WM_KEYDOWN, WM_QUIT, WM_SETICON,
-                WM_SIZE, WNDCLASSW, WS_OVERLAPPEDWINDOW,
+                GetWindowLongPtrW, HTCAPTION, HTCLIENT, ICON_BIG, ICON_SMALL, IDC_ARROW, IMAGE_ICON, IsIconic, IsWindow, IsZoomed,
+                LR_LOADFROMFILE, LoadCursorW, LoadImageW, MSG, PM_REMOVE, PeekMessageW, PostQuitMessage, RegisterClassW, SW_MAXIMIZE,
+                SW_MINIMIZE, SW_RESTORE, SW_SHOW, SW_SHOWNORMAL, SWP_NOACTIVATE, SWP_NOZORDER, SendMessageW, SetForegroundWindow,
+                SetWindowLongPtrW, SetWindowPos, ShowWindow, TranslateMessage, WINDOW_EX_STYLE, WINDOW_STYLE, WM_ACTIVATE, WM_CLOSE, WM_CREATE,
+                WM_DESTROY, WM_DPICHANGED, WM_DROPFILES, WM_KEYDOWN, WM_NCHITTEST, WM_QUIT, WM_SETICON, WM_SIZE, WNDCLASSW, WS_CAPTION,
+                WS_OVERLAPPEDWINDOW,
             },
         },
     },
@@ -59,8 +60,8 @@ use windows::{
 };
 
 use wae_webview::{
-    automation_codes, AutomationError, AutomationId, CaptureOutcome, IpcHandler, IpcOutcome, IpcSink, OpenOptions, Platform, Result,
-    ScriptOutcome, WebViewBackend, WebViewError,
+    AutomationError, AutomationId, CaptureOutcome, DragRect, IpcHandler, IpcOutcome, IpcSink, OpenOptions, Platform, Result, ScriptOutcome,
+    WebViewBackend, WebViewError, automation_codes,
 };
 
 use crate::{console, dpi};
@@ -102,6 +103,8 @@ struct DesktopState {
     /// 自动化：未完成的脚本任务编号与已完成结果。
     pending_scripts: Mutex<Vec<AutomationId>>,
     script_results: Mutex<Vec<ScriptOutcome>>,
+    /// frameless 窗口的拖拽矩形（客户区物理像素 x/y/w/h），由页面自绘标题栏上报。
+    drag_regions: Mutex<Vec<(i32, i32, i32, i32)>>,
     /// 自动化：未完成的截图任务与结果。
     pending_captures: Mutex<Vec<AutomationId>>,
     capture_results: Mutex<Vec<CaptureOutcome>>,
@@ -254,17 +257,13 @@ impl DesktopState {
             let desktop = unsafe { &*(state_addr as *const DesktopState) };
             let outcome = match error_code {
                 Ok(()) => ScriptOutcome::success(id, parse_script_json(&json)),
-                Err(error) => {
-                    ScriptOutcome::failure(id, AutomationError::new(automation_codes::SCRIPT_ERROR, error.message()))
-                }
+                Err(error) => ScriptOutcome::failure(id, AutomationError::new(automation_codes::SCRIPT_ERROR, error.message())),
             };
             desktop.finish_script(outcome);
             Ok(())
         }));
         let wide = encode_wide(script);
-        unsafe {
-            webview.ExecuteScript(PCWSTR(wide.as_ptr()), &handler).map_err(|e| host_failure("script_eval_failed", "evaluate", &e))
-        }
+        unsafe { webview.ExecuteScript(PCWSTR(wide.as_ptr()), &handler).map_err(|e| host_failure("script_eval_failed", "evaluate", &e)) }
     }
 
     /// 发起截图；PNG 由 `CapturePreview` 写入目标文件，结果经 [`Self::take_capture_result`] 回收。
@@ -284,14 +283,8 @@ impl DesktopState {
         }
         let wide_path = encode_wide(&path.display().to_string());
         let stream: IStream = unsafe {
-            SHCreateStreamOnFileEx(
-                PCWSTR(wide_path.as_ptr()),
-                (STGM_CREATE | STGM_WRITE).0,
-                0,
-                true,
-                None::<&IStream>,
-            )
-            .map_err(|e| host_failure("capture_stream_failed", "screenshot", &e))?
+            SHCreateStreamOnFileEx(PCWSTR(wide_path.as_ptr()), (STGM_CREATE | STGM_WRITE).0, 0, true, None::<&IStream>)
+                .map_err(|e| host_failure("capture_stream_failed", "screenshot", &e))?
         };
         self.pending_captures.lock().expect("pending captures lock").push(id);
         let state_addr = self as *const DesktopState as usize;
@@ -300,11 +293,9 @@ impl DesktopState {
             let desktop = unsafe { &*(state_addr as *const DesktopState) };
             let outcome = match error_code {
                 Ok(()) => CaptureOutcome { id, path: Some(target.clone()), error: None },
-                Err(error) => CaptureOutcome {
-                    id,
-                    path: None,
-                    error: Some(AutomationError::new(automation_codes::CAPTURE_FAILED, error.message())),
-                },
+                Err(error) => {
+                    CaptureOutcome { id, path: None, error: Some(AutomationError::new(automation_codes::CAPTURE_FAILED, error.message())) }
+                }
             };
             desktop.finish_capture(outcome);
             Ok(())
@@ -538,6 +529,28 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
             WM_KEYDOWN if wparam.0 == usize::from(VK_F12.0) => {
                 state.open_dev_tools("f12");
                 LRESULT(0)
+            }
+            WM_NCHITTEST => {
+                let result = DefWindowProcW(hwnd, msg, wparam, lparam);
+                // 只把默认「客户区」命中当作拖拽候选；缩放边框等非客户区结果原样保留。
+                if result.0 != HTCLIENT as isize || state.options.decorations {
+                    return result;
+                }
+                let regions = state.drag_regions.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                if regions.is_empty() {
+                    return result;
+                }
+                // LPARAM 低 16 位 / 次 16 位是屏幕坐标（有符号），先转客户区再比对矩形。
+                let x = (lparam.0 & 0x0000_FFFF) as u16 as i16 as i32;
+                let y = ((lparam.0 >> 16) & 0x0000_FFFF) as u16 as i16 as i32;
+                let mut point = POINT { x, y };
+                let _ = ScreenToClient(hwnd, &mut point);
+                for (rx, ry, rw, rh) in regions.iter() {
+                    if point.x >= *rx && point.x < *rx + *rw && point.y >= *ry && point.y < *ry + *rh {
+                        return LRESULT(HTCAPTION as isize);
+                    }
+                }
+                result
             }
             WM_CLOSE => {
                 let _ = DestroyWindow(hwnd);
@@ -1040,8 +1053,10 @@ impl WebViewBackend for Win32Backend {
             let title = encode_wide(&options.title);
             // 作者面传逻辑像素（DIP），窗口与 WebView2 边界全部按物理像素处理。
             let initial_dpi = dpi::system_dpi();
-            let (width, height) =
-                dpi::client_to_window_size(options.width, options.height, WS_OVERLAPPEDWINDOW, WINDOW_EX_STYLE(0), initial_dpi);
+            // frameless：只摘掉 caption，保留缩放边框、最小化/最大化按钮样式与系统菜单，
+            // 拖拽与双击最大化由页面标题栏上报的 `drag_regions` 命中测试承担。
+            let style = if options.decorations { WS_OVERLAPPEDWINDOW } else { WINDOW_STYLE(WS_OVERLAPPEDWINDOW.0 & !WS_CAPTION.0) };
+            let (width, height) = dpi::client_to_window_size(options.width, options.height, style, WINDOW_EX_STYLE(0), initial_dpi);
             let (width, height) = match dpi::primary_work_area() {
                 Some(area) => (width.min(area.right - area.left), height.min(area.bottom - area.top)),
                 None => (width, height),
@@ -1062,6 +1077,7 @@ impl WebViewBackend for Win32Backend {
                 open_started: Instant::now(),
                 pending_scripts: Mutex::new(Vec::new()),
                 script_results: Mutex::new(Vec::new()),
+                drag_regions: Mutex::new(Vec::new()),
                 pending_captures: Mutex::new(Vec::new()),
                 capture_results: Mutex::new(Vec::new()),
             });
@@ -1070,7 +1086,7 @@ impl WebViewBackend for Win32Backend {
                 WINDOW_EX_STYLE(0),
                 class_name,
                 PCWSTR(title.as_ptr()),
-                WS_OVERLAPPEDWINDOW,
+                style,
                 origin,
                 origin,
                 width,
@@ -1279,6 +1295,26 @@ impl WebViewBackend for Win32Backend {
         unsafe {
             let _ = ShowWindow(hwnd, next);
         }
+        Ok(())
+    }
+
+    fn set_drag_regions(&mut self, rects: &[DragRect]) -> Result<()> {
+        if !self.is_alive() {
+            return Err(WebViewError::host("window_not_alive", "set_drag_regions", "窗口已关闭，无法设置拖拽区域"));
+        }
+        let dpi = dpi::window_dpi(self.state.hwnd);
+        let converted: Vec<(i32, i32, i32, i32)> = rects
+            .iter()
+            .map(|rect| {
+                (
+                    dpi::dip_to_physical(rect.x, dpi),
+                    dpi::dip_to_physical(rect.y, dpi),
+                    dpi::dip_to_physical(rect.width, dpi),
+                    dpi::dip_to_physical(rect.height, dpi),
+                )
+            })
+            .collect();
+        *self.state.drag_regions.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = converted;
         Ok(())
     }
 }
