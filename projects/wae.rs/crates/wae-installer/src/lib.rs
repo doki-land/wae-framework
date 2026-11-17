@@ -24,6 +24,9 @@
 
 #![deny(missing_docs)]
 
+// 容器原语；由各格式 writer 接线使用。
+#[allow(dead_code)]
+mod cfb;
 pub mod error;
 pub mod spec;
 pub mod writer;
