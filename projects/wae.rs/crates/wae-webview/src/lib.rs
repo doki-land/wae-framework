@@ -65,17 +65,44 @@ pub struct OpenOptions {
     /// Windows 已接线（`WM_DROPFILES`）；macOS / Linux 后端接收字段但本轮不接线，
     /// 补齐实现时不得更改消息形状。
     pub accept_file_drop: bool,
+    /// 打开窗口但不显示，供自动化 harness 运行；默认显示。
+    ///
+    /// 后端无法隐藏窗口时必须返回 [`WebViewError::Unsupported`]
+    /// （`Capability::HiddenWindow`），不得静默显示或静默空白。
+    pub hidden: bool,
 }
 
 impl OpenOptions {
     /// 通过本地内容目录打开。
     pub fn from_content_dir(content_dir: impl Into<String>, title: impl Into<String>) -> Self {
-        Self { title: title.into(), width: 1100, height: 720, content_dir: Some(content_dir.into()), url: None, accept_file_drop: false }
+        Self {
+            title: title.into(),
+            width: 1100,
+            height: 720,
+            content_dir: Some(content_dir.into()),
+            url: None,
+            accept_file_drop: false,
+            hidden: false,
+        }
     }
 
     /// 直接导航到 URL（逃生舱；优先使用 [`Self::from_content_dir`]）。
     pub fn from_url(url: impl Into<String>, title: impl Into<String>) -> Self {
-        Self { title: title.into(), width: 1100, height: 720, content_dir: None, url: Some(url.into()), accept_file_drop: false }
+        Self {
+            title: title.into(),
+            width: 1100,
+            height: 720,
+            content_dir: None,
+            url: Some(url.into()),
+            accept_file_drop: false,
+            hidden: false,
+        }
+    }
+
+    /// 切换隐藏窗口运行（自动化用）。
+    pub fn with_hidden(mut self, hidden: bool) -> Self {
+        self.hidden = hidden;
+        self
     }
 }
 
@@ -140,6 +167,12 @@ pub enum Capability {
     Focus,
     /// 接收拖放到窗口的本地文件并把完整路径推送给页面。
     FileDrop,
+    /// 在页面执行脚本并回收 JSON 结果（自动化 harness）。
+    ScriptEval,
+    /// 把当前 WebView 可见内容截成 PNG 文件（自动化 harness）。
+    Screenshot,
+    /// 打开窗口但不显示（自动化 harness）。
+    HiddenWindow,
 }
 
 /// 编译目标平台。
@@ -285,10 +318,82 @@ impl std::error::Error for WebViewError {}
 /// WebView 辅助函数的结果别名。
 pub type Result<T> = std::result::Result<T, WebViewError>;
 
-/// 单个平台的 WebView 后端实现（窗口、加载、消息通道、关闭、事件泵）。
+/// 自动化任务编号；由宿主分配，后端只负责回传。
+pub type AutomationId = u64;
+
+/// 自动化失败码（稳定字符串，供 harness 与 CLI 判别）。
+pub mod automation_codes {
+    /// 平台没有脚本执行能力。
+    pub const SCRIPT_EVAL_UNSUPPORTED: &str = "script_eval_unsupported";
+    /// 平台没有截图能力。
+    pub const SCREENSHOT_UNSUPPORTED: &str = "screenshot_unsupported";
+    /// 平台无法隐藏窗口。
+    pub const HIDDEN_WINDOW_UNSUPPORTED: &str = "hidden_window_unsupported";
+    /// 窗口已销毁，排队中的任务被取消。
+    pub const WINDOW_CLOSED: &str = "window_closed";
+    /// 页面脚本抛出异常。
+    pub const SCRIPT_ERROR: &str = "script_error";
+    /// 截图失败（流创建、编码或回调错误）。
+    pub const CAPTURE_FAILED: &str = "capture_failed";
+}
+
+/// 自动化任务的稳定失败分类。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AutomationError {
+    /// 稳定失败码，见 [`automation_codes`]。
+    pub code: &'static str,
+    /// 可读说明；不得包含凭证或页面外的宿主路径。
+    pub message: String,
+}
+
+impl AutomationError {
+    /// 构造一条失败记录。
+    pub fn new(code: &'static str, message: impl Into<String>) -> Self {
+        Self { code, message: message.into() }
+    }
+}
+
+/// 脚本执行结果；`value` 与 `error` 恰好一个非空。
+#[derive(Debug, Clone, PartialEq)]
+pub struct ScriptOutcome {
+    /// 任务编号。
+    pub id: AutomationId,
+    /// 页面返回的 JSON 值（`undefined` 视为 `null`）。
+    pub value: Option<serde_json::Value>,
+    /// 执行失败。
+    pub error: Option<AutomationError>,
+}
+
+impl ScriptOutcome {
+    /// 成功结果。
+    pub fn success(id: AutomationId, value: serde_json::Value) -> Self {
+        Self { id, value: Some(value), error: None }
+    }
+
+    /// 失败结果。
+    pub fn failure(id: AutomationId, error: AutomationError) -> Self {
+        Self { id, value: None, error: Some(error) }
+    }
+}
+
+/// 截图结果；`path` 与 `error` 恰好一个非空。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CaptureOutcome {
+    /// 任务编号。
+    pub id: AutomationId,
+    /// 实际写入的 PNG 路径。
+    pub path: Option<std::path::PathBuf>,
+    /// 截图失败。
+    pub error: Option<AutomationError>,
+}
+
+/// 单个平台的 WebView 后端实现（窗口、加载、消息通道、关闭、事件泵、自动化）。
 pub trait WebViewBackend: Sized {
     /// 后端名，用于诊断与验证。
     const NAME: &'static str;
+
+    /// 编译目标平台，用于结构化「能力缺失」错误。
+    const PLATFORM: Platform;
 
     /// 创建并显示 WebView 窗口。
     fn open(options: OpenOptions, handler: Box<dyn IpcHandler>) -> Result<Self>;
@@ -310,17 +415,40 @@ pub trait WebViewBackend: Sized {
     /// 单实例二次启动按 `window.secondLaunch: 'focus'` 调用本方法。平台缺少该能力
     /// 时必须返回 [`WebViewError::Unsupported`]（`Capability::Focus`），不得静默成功。
     fn focus(&mut self) -> Result<()>;
+
+    /// 发起一次页面脚本执行；结果经 [`Self::take_script_result`] 回收。
+    ///
+    /// 默认实现返回结构化「平台缺少能力」，未接线平台不得伪造成功。
+    fn evaluate(&mut self, _id: AutomationId, _script: &str) -> Result<()> {
+        Err(WebViewError::unsupported(Capability::ScriptEval, Self::PLATFORM))
+    }
+
+    /// 取走指定脚本任务的结果；尚未完成时返回 `None`。
+    fn take_script_result(&mut self, _id: AutomationId) -> Option<ScriptOutcome> {
+        None
+    }
+
+    /// 发起一次截图写入 `path`；结果经 [`Self::take_capture_result`] 回收。
+    fn screenshot(&mut self, _id: AutomationId, _path: &std::path::Path) -> Result<()> {
+        Err(WebViewError::unsupported(Capability::Screenshot, Self::PLATFORM))
+    }
+
+    /// 取走指定截图任务的结果；尚未完成时返回 `None`。
+    fn take_capture_result(&mut self, _id: AutomationId) -> Option<CaptureOutcome> {
+        None
+    }
 }
 
 /// 由外部驱动的 WebView 宿主；`B` 由门面按目标平台选定。
 pub struct WebViewHost<B: WebViewBackend> {
     backend: B,
+    next_automation_id: AutomationId,
 }
 
 impl<B: WebViewBackend> WebViewHost<B> {
     /// 创建并显示 WebView 窗口。
     pub fn open(options: OpenOptions, handler: Box<dyn IpcHandler>) -> Result<Self> {
-        Ok(Self { backend: B::open(options, handler)? })
+        Ok(Self { backend: B::open(options, handler)?, next_automation_id: 1 })
     }
 
     /// 处理挂起的平台消息；窗口已关闭时返回 `false`。
@@ -348,6 +476,42 @@ impl<B: WebViewBackend> WebViewHost<B> {
         self.backend.focus()
     }
 
+    /// 发起页面脚本执行并返回任务编号；窗口已销毁时返回 `window_closed`。
+    pub fn evaluate(&mut self, script: &str) -> Result<AutomationId> {
+        self.ensure_alive("evaluate")?;
+        let id = self.next_automation_id;
+        self.next_automation_id += 1;
+        self.backend.evaluate(id, script)?;
+        Ok(id)
+    }
+
+    /// 取走脚本结果；未完成返回 `None`。
+    pub fn poll_script_result(&mut self, id: AutomationId) -> Option<ScriptOutcome> {
+        self.backend.take_script_result(id)
+    }
+
+    /// 发起截图并返回任务编号。
+    pub fn screenshot(&mut self, path: &std::path::Path) -> Result<AutomationId> {
+        self.ensure_alive("screenshot")?;
+        let id = self.next_automation_id;
+        self.next_automation_id += 1;
+        self.backend.screenshot(id, path)?;
+        Ok(id)
+    }
+
+    /// 取走截图结果；未完成返回 `None`。
+    pub fn poll_capture_result(&mut self, id: AutomationId) -> Option<CaptureOutcome> {
+        self.backend.take_capture_result(id)
+    }
+
+    /// 自动化调用前的窗口存活检查：销毁后以稳定码 `window_closed` 拒绝。
+    fn ensure_alive(&self, stage: &'static str) -> Result<()> {
+        if self.backend.is_alive() {
+            return Ok(());
+        }
+        Err(WebViewError::host(automation_codes::WINDOW_CLOSED, stage, "窗口已销毁，自动化调用被拒绝"))
+    }
+
     /// 当前后端名（例如 `win32` / `macos` / `linux`）。
     pub fn backend_name(&self) -> &'static str {
         B::NAME
@@ -366,6 +530,41 @@ mod tests {
         }
     }
 
+    /// 未接线自动化的后端：默认方法必须给出结构化 `Unsupported`，不得伪造成功。
+    struct DefaultBackend {
+        alive: bool,
+    }
+
+    impl WebViewBackend for DefaultBackend {
+        const NAME: &'static str = "test";
+        const PLATFORM: Platform = Platform::Linux;
+
+        fn open(_options: OpenOptions, _handler: Box<dyn IpcHandler>) -> Result<Self> {
+            Ok(Self { alive: true })
+        }
+
+        fn pump(&mut self) -> bool {
+            self.alive
+        }
+
+        fn close(&mut self) -> Result<()> {
+            self.alive = false;
+            Ok(())
+        }
+
+        fn post_message(&self, _json: &str) -> Result<()> {
+            Ok(())
+        }
+
+        fn is_alive(&self) -> bool {
+            self.alive
+        }
+
+        fn focus(&mut self) -> Result<()> {
+            Ok(())
+        }
+    }
+
     #[test]
     fn open_options_defaults_are_stable() {
         let from_dir = OpenOptions::from_content_dir("dist", "App");
@@ -375,11 +574,38 @@ mod tests {
         assert_eq!(from_dir.content_dir.as_deref(), Some("dist"));
         assert!(from_dir.url.is_none());
         assert!(!from_dir.accept_file_drop);
+        assert!(!from_dir.hidden);
 
         let from_url = OpenOptions::from_url("https://example.com", "App");
         assert!(from_url.content_dir.is_none());
         assert_eq!(from_url.url.as_deref(), Some("https://example.com"));
         assert!(!from_url.accept_file_drop);
+        assert!(from_url.with_hidden(true).hidden);
+    }
+
+    #[test]
+    fn automation_defaults_report_structured_unsupported() {
+        let mut host = WebViewHost::<DefaultBackend>::open(OpenOptions::from_url("https://example.com", "App"), Box::new(NoopHandler))
+            .expect("open test backend");
+
+        let error = host.evaluate("1 + 1").expect_err("evaluate must be unsupported");
+        assert_eq!(error.capability(), Some(Capability::ScriptEval));
+        assert_eq!(error.platform(), Some(Platform::Linux));
+
+        let error = host.screenshot(std::path::Path::new("shot.png")).expect_err("screenshot must be unsupported");
+        assert_eq!(error.capability(), Some(Capability::Screenshot));
+
+        assert!(host.poll_script_result(1).is_none());
+        assert!(host.poll_capture_result(1).is_none());
+    }
+
+    #[test]
+    fn closed_window_rejects_new_automation_calls() {
+        let mut host = WebViewHost::<DefaultBackend>::open(OpenOptions::from_url("https://example.com", "App"), Box::new(NoopHandler))
+            .expect("open test backend");
+        host.close().expect("close");
+        let error = host.evaluate("1").expect_err("closed window must reject evaluate");
+        assert_eq!(error.code(), Some(automation_codes::WINDOW_CLOSED));
     }
 
     #[test]

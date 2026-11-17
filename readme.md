@@ -21,6 +21,7 @@ projects/wae.rs/crates/
   wae-webview-win32   # 自研 WebView2 宿主（pumpEvents）
   wae-webview-macos   # 自研 WKWebView 宿主
   wae-webview-linux   # 自研 GTK3 + WebKitGTK 宿主
+  wae-harness         # 自动化 harness：脚本执行 / 等待 / 截图 / loopback 控制通道
   wae-audit           # 审计记录：固定 schema / 脱敏 / append-only JSONL / 查询 → wae::audit
   wae-addon           # Node-API addon：version / capabilities / probe / auditQuery
 ```

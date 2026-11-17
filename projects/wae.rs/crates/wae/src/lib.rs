@@ -46,7 +46,10 @@ pub use wae_macros::{class, function, object, register_module};
 /// ```
 #[cfg(feature = "webview")]
 pub mod webview {
-    pub use wae_webview::{Capability, IpcHandler, IpcOutcome, IpcSink, OpenOptions, Platform, Result, WebViewError};
+    pub use wae_webview::{
+        AutomationError, AutomationId, Capability, CaptureOutcome, IpcHandler, IpcOutcome, IpcSink, OpenOptions, Platform, Result,
+        ScriptOutcome, WebViewError, automation_codes,
+    };
 
     /// 当前编译目标对应的平台，供结构化错误与诊断使用。
     pub fn current_platform() -> Platform {
@@ -82,8 +85,29 @@ pub mod webview {
     compile_error!("`wae::webview` 只支持 Windows / macOS / Linux；其它目标没有 WebView 后端");
 }
 
-/// `wae::shell`：用系统关联程序启动文件（feature `shell`，默认开启）。
+/// `wae::harness`：进程内自动化驱动与 loopback 控制通道（feature `harness`，默认开启）。
 ///
+/// 在真实 WebView 上执行脚本、等待条件、截图与关闭；平台缺少能力时返回结构化
+/// `Unsupported`，不伪造成功。`serve_from_env` 只监听 `127.0.0.1`，由
+/// `WAE_HARNESS_PORT` / `WAE_HARNESS_TOKEN` 激活。
+#[cfg(feature = "harness")]
+pub mod harness {
+    pub use wae_harness::{DEFAULT_TIMEOUT, Harness, HarnessError, Result, serve_connection, serve_from_env};
+
+    /// 当前目标的 harness（Windows：Win32 + WebView2）。
+    #[cfg(target_os = "windows")]
+    pub type PlatformHarness = Harness<wae_webview_win32::Win32Backend>;
+
+    /// 当前目标的 harness（macOS：WKWebView）。
+    #[cfg(target_os = "macos")]
+    pub type PlatformHarness = Harness<wae_webview_macos::MacosBackend>;
+
+    /// 当前目标的 harness（Linux：WebKitGTK）。
+    #[cfg(target_os = "linux")]
+    pub type PlatformHarness = Harness<wae_webview_linux::LinuxBackend>;
+}
+
+/// `wae::shell`：用系统关联程序启动文件（feature `shell`，默认开启）。
 /// 三个桌面平台同一签名 `open_path(&Path) -> Result<(), ShellError>`；
 /// 失败按 [`ShellError`] 字段判别，下游不得写平台 `cfg`、不得匹配错误字符串。
 /// 调用方应只传入自己产出的真实文件路径（如 OpenZipper 的临时预览文件）。

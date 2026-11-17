@@ -10,3 +10,4 @@ description = "WAE WebView 后端合同：平台无关类型、后端 trait 与�
 publish = false
 
 [dependencies]
+serde_json = { workspace = true }

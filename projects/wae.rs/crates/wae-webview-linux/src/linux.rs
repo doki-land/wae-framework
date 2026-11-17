@@ -16,7 +16,8 @@ use std::{
 
 use libloading::Library;
 use wae_webview::{
-    IpcHandler, IpcOutcome, IpcSink, MESSAGE_HANDLER_NAME, OpenOptions, Result, WebViewBackend, WebViewError, page_receive_script,
+    IpcHandler, IpcOutcome, IpcSink, MESSAGE_HANDLER_NAME, OpenOptions, Platform, Result, WebViewBackend, WebViewError,
+    page_receive_script,
 };
 
 type GtkWidget = c_void;
@@ -194,6 +195,7 @@ impl LinuxBackend {
 
 impl WebViewBackend for LinuxBackend {
     const NAME: &'static str = "linux";
+    const PLATFORM: Platform = Platform::Linux;
 
     fn open(options: OpenOptions, handler: Box<dyn IpcHandler>) -> Result<Self> {
         if options.content_dir.is_none() && options.url.is_none() {

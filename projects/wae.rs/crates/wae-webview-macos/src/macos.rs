@@ -15,7 +15,8 @@ use objc2_app_kit::{
 use objc2_foundation::{NSDate, NSDefaultRunLoopMode, NSPoint, NSRect, NSSize, NSString, NSURL, NSURLRequest};
 use objc2_web_kit::{WKScriptMessage, WKScriptMessageHandler, WKUserContentController, WKWebView, WKWebViewConfiguration};
 use wae_webview::{
-    IpcHandler, IpcOutcome, IpcSink, MESSAGE_HANDLER_NAME, OpenOptions, Result, WebViewBackend, WebViewError, page_receive_script,
+    IpcHandler, IpcOutcome, IpcSink, MESSAGE_HANDLER_NAME, OpenOptions, Platform, Result, WebViewBackend, WebViewError,
+    page_receive_script,
 };
 
 /// worker 线程排给主线程的出站动作；`pump()` 在拥有窗口的线程排空。
@@ -93,6 +94,7 @@ impl MacosBackend {
 
 impl WebViewBackend for MacosBackend {
     const NAME: &'static str = "macos";
+    const PLATFORM: Platform = Platform::Macos;
 
     fn open(options: OpenOptions, handler: Box<dyn IpcHandler>) -> Result<Self> {
         let Some(mtm) = MainThreadMarker::new()

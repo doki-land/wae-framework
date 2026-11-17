@@ -11,19 +11,20 @@ use std::{
 };
 
 use webview2_com::{
-    AcceleratorKeyPressedEventHandler, AddScriptToExecuteOnDocumentCreatedCompletedHandler, CoreWebView2EnvironmentOptions,
-    CreateCoreWebView2ControllerCompletedHandler, CreateCoreWebView2EnvironmentCompletedHandler,
+    AcceleratorKeyPressedEventHandler, AddScriptToExecuteOnDocumentCreatedCompletedHandler, CapturePreviewCompletedHandler,
+    CoreWebView2EnvironmentOptions, CreateCoreWebView2ControllerCompletedHandler, CreateCoreWebView2EnvironmentCompletedHandler,
+    ExecuteScriptCompletedHandler,
     Microsoft::Web::WebView2::Win32::{
-        COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW, COREWEBVIEW2_KEY_EVENT_KIND, COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN,
-        COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC, COREWEBVIEW2_WEB_ERROR_STATUS, COREWEBVIEW2_WEB_ERROR_STATUS_CANNOT_CONNECT,
-        COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_COMMON_NAME_IS_INCORRECT, COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_EXPIRED,
-        COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_IS_INVALID, COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_REVOKED,
-        COREWEBVIEW2_WEB_ERROR_STATUS_CLIENT_CERTIFICATE_CONTAINS_ERRORS, COREWEBVIEW2_WEB_ERROR_STATUS_CONNECTION_ABORTED,
-        COREWEBVIEW2_WEB_ERROR_STATUS_CONNECTION_RESET, COREWEBVIEW2_WEB_ERROR_STATUS_DISCONNECTED,
-        COREWEBVIEW2_WEB_ERROR_STATUS_ERROR_HTTP_INVALID_SERVER_RESPONSE, COREWEBVIEW2_WEB_ERROR_STATUS_HOST_NAME_NOT_RESOLVED,
-        COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED, COREWEBVIEW2_WEB_ERROR_STATUS_REDIRECT_FAILED,
-        COREWEBVIEW2_WEB_ERROR_STATUS_SERVER_UNREACHABLE, COREWEBVIEW2_WEB_ERROR_STATUS_TIMEOUT,
-        COREWEBVIEW2_WEB_ERROR_STATUS_UNEXPECTED_ERROR, COREWEBVIEW2_WEB_ERROR_STATUS_UNKNOWN,
+        COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG, COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW, COREWEBVIEW2_KEY_EVENT_KIND,
+        COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN, COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC, COREWEBVIEW2_WEB_ERROR_STATUS,
+        COREWEBVIEW2_WEB_ERROR_STATUS_CANNOT_CONNECT, COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_COMMON_NAME_IS_INCORRECT,
+        COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_EXPIRED, COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_IS_INVALID,
+        COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_REVOKED, COREWEBVIEW2_WEB_ERROR_STATUS_CLIENT_CERTIFICATE_CONTAINS_ERRORS,
+        COREWEBVIEW2_WEB_ERROR_STATUS_CONNECTION_ABORTED, COREWEBVIEW2_WEB_ERROR_STATUS_CONNECTION_RESET,
+        COREWEBVIEW2_WEB_ERROR_STATUS_DISCONNECTED, COREWEBVIEW2_WEB_ERROR_STATUS_ERROR_HTTP_INVALID_SERVER_RESPONSE,
+        COREWEBVIEW2_WEB_ERROR_STATUS_HOST_NAME_NOT_RESOLVED, COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED,
+        COREWEBVIEW2_WEB_ERROR_STATUS_REDIRECT_FAILED, COREWEBVIEW2_WEB_ERROR_STATUS_SERVER_UNREACHABLE,
+        COREWEBVIEW2_WEB_ERROR_STATUS_TIMEOUT, COREWEBVIEW2_WEB_ERROR_STATUS_UNEXPECTED_ERROR, COREWEBVIEW2_WEB_ERROR_STATUS_UNKNOWN,
         COREWEBVIEW2_WEB_ERROR_STATUS_VALID_AUTHENTICATION_CREDENTIALS_REQUIRED,
         COREWEBVIEW2_WEB_ERROR_STATUS_VALID_PROXY_AUTHENTICATION_REQUIRED, CreateCoreWebView2EnvironmentWithOptions,
         GetAvailableCoreWebView2BrowserVersionString, ICoreWebView2, ICoreWebView2_3, ICoreWebView2Controller, ICoreWebView2Controller4,
@@ -37,12 +38,12 @@ use windows::{
             E_POINTER, E_UNEXPECTED, ERROR_CLASS_ALREADY_EXISTS, GetLastError, HWND, LPARAM, LRESULT, RECT, RPC_E_CHANGED_MODE, WPARAM,
         },
         System::{
-            Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoTaskMemFree},
+            Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoTaskMemFree, IStream, STGM_CREATE, STGM_WRITE},
             LibraryLoader::GetModuleHandleW,
         },
         UI::{
             Input::KeyboardAndMouse::VK_F12,
-            Shell::{DragAcceptFiles, DragFinish, DragQueryFileW, HDROP},
+            Shell::{DragAcceptFiles, DragFinish, DragQueryFileW, HDROP, SHCreateStreamOnFileEx},
             WindowsAndMessaging::{
                 CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GWLP_USERDATA, GetClientRect,
                 GetWindowLongPtrW, ICON_BIG, ICON_SMALL, IDC_ARROW, IMAGE_ICON, IsIconic, IsWindow, LR_LOADFROMFILE, LoadCursorW, LoadImageW,
@@ -56,7 +57,10 @@ use windows::{
     core::{Interface, PCWSTR, PWSTR, w},
 };
 
-use wae_webview::{IpcHandler, IpcOutcome, IpcSink, OpenOptions, Result, WebViewBackend, WebViewError};
+use wae_webview::{
+    automation_codes, AutomationError, AutomationId, CaptureOutcome, IpcHandler, IpcOutcome, IpcSink, OpenOptions, Platform, Result,
+    ScriptOutcome, WebViewBackend, WebViewError,
+};
 
 use crate::{console, dpi};
 
@@ -94,11 +98,23 @@ struct DesktopState {
     revealed: AtomicBool,
     /// `open()` 完成挂载的时刻，`pump()` 据此做 [`REVEAL_TIMEOUT`] 兜底显窗。
     open_started: Instant,
+    /// 自动化：未完成的脚本任务编号与已完成结果。
+    pending_scripts: Mutex<Vec<AutomationId>>,
+    script_results: Mutex<Vec<ScriptOutcome>>,
+    /// 自动化：未完成的截图任务与结果。
+    pending_captures: Mutex<Vec<AutomationId>>,
+    capture_results: Mutex<Vec<CaptureOutcome>>,
 }
 
 impl DesktopState {
     /// 首次调用把隐藏窗口显示出来并抢前台，之后为幂等空操作。
+    ///
+    /// 自动化打开的隐藏窗口永不显窗：`hidden` 在 `open()` 时固定，
+    /// 显窗兜底与 `focus()` 同样被该分支拦下。
     fn reveal_once(&self, trigger: &str) {
+        if self.options.hidden {
+            return;
+        }
         if self.revealed.swap(true, Ordering::SeqCst) {
             return;
         }
@@ -225,6 +241,101 @@ impl DesktopState {
         Ok(())
     }
 
+    /// 发起页面脚本执行；结果在 `pump()` 驱动下经 [`Self::take_script_result`] 回收。
+    fn evaluate_script(&self, id: AutomationId, script: &str) -> Result<()> {
+        let Some(webview) = self.webview.as_ref()
+        else {
+            return Err(WebViewError::host("webview_not_ready", "evaluate", "webview 尚未就绪"));
+        };
+        self.pending_scripts.lock().expect("pending scripts lock").push(id);
+        let state_addr = self as *const DesktopState as usize;
+        let handler = ExecuteScriptCompletedHandler::create(Box::new(move |error_code, json| {
+            let desktop = unsafe { &*(state_addr as *const DesktopState) };
+            let outcome = match error_code {
+                Ok(()) => ScriptOutcome::success(id, parse_script_json(&json)),
+                Err(error) => {
+                    ScriptOutcome::failure(id, AutomationError::new(automation_codes::SCRIPT_ERROR, error.message()))
+                }
+            };
+            desktop.finish_script(outcome);
+            Ok(())
+        }));
+        let wide = encode_wide(script);
+        unsafe {
+            webview.ExecuteScript(PCWSTR(wide.as_ptr()), &handler).map_err(|e| host_failure("script_eval_failed", "evaluate", &e))
+        }
+    }
+
+    /// 发起截图；PNG 由 `CapturePreview` 写入目标文件，结果经 [`Self::take_capture_result`] 回收。
+    fn capture_preview(&self, id: AutomationId, path: &Path) -> Result<()> {
+        let Some(webview) = self.webview.as_ref()
+        else {
+            return Err(WebViewError::host("webview_not_ready", "screenshot", "webview 尚未就绪"));
+        };
+        let wide_path = encode_wide(&path.display().to_string());
+        let stream: IStream = unsafe {
+            SHCreateStreamOnFileEx(
+                PCWSTR(wide_path.as_ptr()),
+                (STGM_CREATE | STGM_WRITE).0,
+                0,
+                true,
+                None::<&IStream>,
+            )
+            .map_err(|e| host_failure("capture_stream_failed", "screenshot", &e))?
+        };
+        self.pending_captures.lock().expect("pending captures lock").push(id);
+        let state_addr = self as *const DesktopState as usize;
+        let target = path.to_path_buf();
+        let handler = CapturePreviewCompletedHandler::create(Box::new(move |error_code| {
+            let desktop = unsafe { &*(state_addr as *const DesktopState) };
+            let outcome = match error_code {
+                Ok(()) => CaptureOutcome { id, path: Some(target.clone()), error: None },
+                Err(error) => CaptureOutcome {
+                    id,
+                    path: None,
+                    error: Some(AutomationError::new(automation_codes::CAPTURE_FAILED, error.message())),
+                },
+            };
+            desktop.finish_capture(outcome);
+            Ok(())
+        }));
+        unsafe {
+            webview
+                .CapturePreview(COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG, &stream, &handler)
+                .map_err(|e| host_failure("capture_failed", "screenshot", &e))
+        }
+    }
+
+    /// 记录脚本结果并移出待办。
+    fn finish_script(&self, outcome: ScriptOutcome) {
+        let id = outcome.id;
+        self.pending_scripts.lock().expect("pending scripts lock").retain(|pending| *pending != id);
+        self.script_results.lock().expect("script results lock").push(outcome);
+    }
+
+    /// 记录截图结果并移出待办。
+    fn finish_capture(&self, outcome: CaptureOutcome) {
+        let id = outcome.id;
+        self.pending_captures.lock().expect("pending captures lock").retain(|pending| *pending != id);
+        self.capture_results.lock().expect("capture results lock").push(outcome);
+    }
+
+    /// 取走指定脚本结果；尚未完成返回 `None`。窗口销毁后未完成项以 `window_closed` 结清。
+    fn take_script_result(&self, id: AutomationId) -> Option<ScriptOutcome> {
+        take_outcome(&self.script_results, &self.pending_scripts, id, !self.alive, |id| {
+            ScriptOutcome::failure(id, AutomationError::new(automation_codes::WINDOW_CLOSED, "窗口已销毁，脚本任务被取消"))
+        })
+    }
+
+    /// 取走指定截图结果；语义与 [`Self::take_script_result`] 一致。
+    fn take_capture_result(&self, id: AutomationId) -> Option<CaptureOutcome> {
+        take_outcome(&self.capture_results, &self.pending_captures, id, !self.alive, |id| CaptureOutcome {
+            id,
+            path: None,
+            error: Some(AutomationError::new(automation_codes::WINDOW_CLOSED, "窗口已销毁，截图任务被取消")),
+        })
+    }
+
     /// 打开 WebView2 DevTools（独立窗口）。
     ///
     /// 可见控制台不再是调试入口：`F12` 与 `WAE_WEBVIEW_DIAG=1` 都经这里打开
@@ -239,6 +350,60 @@ impl DesktopState {
             Ok(()) => dpi::emit(format!("devtools.open reason={reason}")),
             Err(error) => dpi::emit(format!("devtools.open_failed reason={reason} hresult={:#x} message={}", error.code().0, error.message())),
         }
+    }
+}
+
+/// 从结果队列取走 `id`；窗口已销毁且任务仍挂起时合成 `window_closed`。
+fn take_outcome<T>(
+    results: &Mutex<Vec<T>>,
+    pending: &Mutex<Vec<AutomationId>>,
+    id: AutomationId,
+    closed: bool,
+    on_closed: impl FnOnce(AutomationId) -> T,
+) -> Option<T>
+where
+    T: HasAutomationId,
+{
+    {
+        let mut results = results.lock().expect("automation results lock");
+        if let Some(index) = results.iter().position(|item| item.automation_id() == id) {
+            return Some(results.remove(index));
+        }
+    }
+    if !closed {
+        return None;
+    }
+    let mut pending = pending.lock().expect("automation pending lock");
+    let index = pending.iter().position(|item| *item == id)?;
+    pending.remove(index);
+    Some(on_closed(id))
+}
+
+/// 自动化结果都能给出自己的任务编号。
+trait HasAutomationId {
+    fn automation_id(&self) -> AutomationId;
+}
+
+impl HasAutomationId for ScriptOutcome {
+    fn automation_id(&self) -> AutomationId {
+        self.id
+    }
+}
+
+impl HasAutomationId for CaptureOutcome {
+    fn automation_id(&self) -> AutomationId {
+        self.id
+    }
+}
+
+/// `ExecuteScript` 返回的是表达式 JSON 文本；空串与非法 JSON 都按字符串/null 归一，不丢结果。
+fn parse_script_json(json: &str) -> serde_json::Value {
+    if json.trim().is_empty() {
+        return serde_json::Value::Null;
+    }
+    match serde_json::from_str(json) {
+        Ok(value) => value,
+        Err(_) => serde_json::Value::String(json.to_owned()),
     }
 }
 
@@ -823,6 +988,7 @@ impl Win32Backend {
 
 impl WebViewBackend for Win32Backend {
     const NAME: &'static str = "win32";
+    const PLATFORM: Platform = Platform::Windows;
 
     fn open(options: OpenOptions, handler: Box<dyn IpcHandler>) -> Result<Self> {
         // 先装文件日志再收控制台：隐藏之后 stderr 不再有人看得见。
@@ -884,6 +1050,10 @@ impl WebViewBackend for Win32Backend {
                 alive: true,
                 revealed: AtomicBool::new(false),
                 open_started: Instant::now(),
+                pending_scripts: Mutex::new(Vec::new()),
+                script_results: Mutex::new(Vec::new()),
+                pending_captures: Mutex::new(Vec::new()),
+                capture_results: Mutex::new(Vec::new()),
             });
 
             let hwnd = CreateWindowExW(
@@ -1062,5 +1232,21 @@ impl WebViewBackend for Win32Backend {
         // 并保持 `revealed` 同步，避免超时兜底重复显窗。
         self.state.reveal_once("focus");
         Ok(())
+    }
+
+    fn evaluate(&mut self, id: AutomationId, script: &str) -> Result<()> {
+        self.state.evaluate_script(id, script)
+    }
+
+    fn take_script_result(&mut self, id: AutomationId) -> Option<ScriptOutcome> {
+        self.state.take_script_result(id)
+    }
+
+    fn screenshot(&mut self, id: AutomationId, path: &Path) -> Result<()> {
+        self.state.capture_preview(id, path)
+    }
+
+    fn take_capture_result(&mut self, id: AutomationId) -> Option<CaptureOutcome> {
+        self.state.take_capture_result(id)
     }
 }
