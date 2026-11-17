@@ -24,9 +24,13 @@
 
 #![deny(missing_docs)]
 
-// 容器原语；由各格式 writer 接线使用。
+// 容器与字节原语；由各格式 writer 接线使用。
+#[allow(dead_code)]
+mod cab;
 #[allow(dead_code)]
 mod cfb;
+#[allow(dead_code)]
+mod crc32;
 pub mod error;
 pub mod spec;
 pub mod writer;
