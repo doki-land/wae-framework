@@ -50,9 +50,9 @@ use windows::{
                 GetWindowLongPtrW, HTCAPTION, HTCLIENT, ICON_BIG, ICON_SMALL, IDC_ARROW, IMAGE_ICON, IsIconic, IsWindow, IsZoomed,
                 LR_LOADFROMFILE, LoadCursorW, LoadImageW, MSG, PM_REMOVE, PeekMessageW, PostQuitMessage, RegisterClassW, SW_MAXIMIZE,
                 SW_MINIMIZE, SW_RESTORE, SW_SHOW, SW_SHOWNORMAL, SWP_NOACTIVATE, SWP_NOZORDER, SendMessageW, SetForegroundWindow,
-                SetWindowLongPtrW, SetWindowPos, ShowWindow, TranslateMessage, WINDOW_EX_STYLE, WM_ACTIVATE, WM_CLOSE, WM_CREATE,
-                WM_DESTROY, WM_DPICHANGED, WM_DROPFILES, WM_KEYDOWN, WM_NCHITTEST, WM_QUIT, WM_SETICON, WM_SIZE, WNDCLASSW,
-                WS_CLIPCHILDREN, WS_CLIPSIBLINGS, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_OVERLAPPEDWINDOW, WS_POPUP, WS_SYSMENU, WS_THICKFRAME,
+                SetWindowLongPtrW, SetWindowPos, ShowWindow, TranslateMessage, WINDOW_EX_STYLE, WM_ACTIVATE, WM_CLOSE, WM_CREATE, WM_DESTROY,
+                WM_DPICHANGED, WM_DROPFILES, WM_KEYDOWN, WM_NCHITTEST, WM_QUIT, WM_SETICON, WM_SIZE, WNDCLASSW, WS_CLIPCHILDREN,
+                WS_CLIPSIBLINGS, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_OVERLAPPEDWINDOW, WS_POPUP, WS_SYSMENU, WS_THICKFRAME,
             },
         },
     },
@@ -449,11 +449,18 @@ fn apply_window_icon(hwnd: HWND, content_dir: Option<&str>) {
     let path_w = encode_wide(&candidate.display().to_string());
     unsafe {
         let name = PCWSTR(path_w.as_ptr());
-        if let Ok(icon) = LoadImageW(None, name, IMAGE_ICON, 16, 16, LR_LOADFROMFILE) {
-            let _ = SendMessageW(hwnd, WM_SETICON, Some(WPARAM(ICON_SMALL as usize)), Some(LPARAM(icon.0 as isize)));
+        // 加载失败不再静默：白屏无图标时这条是唯一线索。
+        match LoadImageW(None, name, IMAGE_ICON, 16, 16, LR_LOADFROMFILE) {
+            Ok(icon) => {
+                let _ = SendMessageW(hwnd, WM_SETICON, Some(WPARAM(ICON_SMALL as usize)), Some(LPARAM(icon.0 as isize)));
+            }
+            Err(error) => eprintln!("wae-webview: app.ico small icon load failed: {error}"),
         }
-        if let Ok(icon) = LoadImageW(None, name, IMAGE_ICON, 32, 32, LR_LOADFROMFILE) {
-            let _ = SendMessageW(hwnd, WM_SETICON, Some(WPARAM(ICON_BIG as usize)), Some(LPARAM(icon.0 as isize)));
+        match LoadImageW(None, name, IMAGE_ICON, 32, 32, LR_LOADFROMFILE) {
+            Ok(icon) => {
+                let _ = SendMessageW(hwnd, WM_SETICON, Some(WPARAM(ICON_BIG as usize)), Some(LPARAM(icon.0 as isize)));
+            }
+            Err(error) => eprintln!("wae-webview: app.ico big icon load failed: {error}"),
         }
     }
 }
@@ -1057,7 +1064,8 @@ impl WebViewBackend for Win32Backend {
             // 拖拽与双击最大化由页面标题栏上报的 `drag_regions` 命中测试承担。
             let style = if options.decorations {
                 WS_OVERLAPPEDWINDOW
-            } else {
+            }
+            else {
                 // Win11 会给 overlapped 窗口静默补回 WS_CAPTION；WS_POPUP 不受影响。
                 // 保留 WS_THICKFRAME 与 min/max box：缩放边框与 Snap 仍可用，
                 // 拖拽与双击最大化由页面标题栏上报的 `drag_regions` 命中测试承担。
