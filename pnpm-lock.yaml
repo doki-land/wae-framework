@@ -27,6 +27,9 @@ importers:
       '@types/node':
         specifier: ^22.15.0
         version: 22.20.5
+      '@wae/wae-harness':
+        specifier: workspace:*
+        version: link:../wae-harness
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
@@ -49,6 +52,29 @@ importers:
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
+
+  projects/wae.ts/packages/wae-harness:
+    dependencies:
+      '@wae/commander':
+        specifier: workspace:*
+        version: link:../wae-commander
+    devDependencies:
+      '@types/node':
+        specifier: ^22.15.0
+        version: 22.20.5
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
+    optionalDependencies:
+      '@wae/wae-darwin-arm64':
+        specifier: 0.0.6
+        version: link:../../platforms/wae-darwin-arm64
+      '@wae/wae-linux-x64':
+        specifier: 0.0.6
+        version: link:../../platforms/wae-linux-x64
+      '@wae/wae-win32-x64':
+        specifier: 0.0.6
+        version: link:../../platforms/wae-win32-x64
 
   projects/wae.ts/platforms/wae-darwin-arm64: {}
 

@@ -5,7 +5,6 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
@@ -43,7 +42,6 @@ import {
     type NativeAuditFilter,
 } from './native.js';
 import { localesRoot, packageVersion, SCAFFOLD_TEMPLATES, type ScaffoldTemplate, templateRoot } from './paths.js';
-import { runHarness, WaeHarnessError } from './harness.js';
 
 export { defineConfig };
 export type {
@@ -89,14 +87,6 @@ export function buildCli() {
         .option('--out <dir>', 'cli.opt.dist-out', { required: true })
         .option('--file <name>', 'cli.opt.file', { required: true })
         .actionCtx(async (options) => cmdDist(options));
-
-    cli.command('harness', 'cli.cmd.harness')
-        .option('--app <path>', 'cli.opt.harness-app', { required: true })
-        .option('--arg <value>...', 'cli.opt.harness-arg')
-        .option('--script <file>', 'cli.opt.harness-script', { required: true })
-        .option('--timeout <ms>', 'cli.opt.harness-timeout', { coerce: (raw) => nonNegativeInt(raw, '--timeout') })
-        .option('--token <value>', 'cli.opt.harness-token')
-        .actionCtx(async (options) => cmdHarness(options));
 
     cli.command('publish', 'cli.cmd.publish')
         .option('--dir <path>...', 'cli.opt.dir', { required: true })
@@ -206,32 +196,6 @@ async function cmdBuild(options: ParsedOptions): Promise<number> {
         return 0;
     } catch (error) {
         return buildFailure('build', error);
-    }
-}
-
-/** Drive a WAE app through its loopback harness control channel. */
-async function cmdHarness(options: ParsedOptions): Promise<number> {
-    const app = typeof options.app === 'string' ? options.app : '';
-    const script = typeof options.script === 'string' ? options.script : '';
-    if (app.length === 0 || script.length === 0) {
-        console.error('wae harness requires --app <path> and --script <file>');
-        return 2;
-    }
-    const rawArgs = options.arg;
-    const args = Array.isArray(rawArgs) ? rawArgs.filter((value): value is string => typeof value === 'string') : [];
-    const timeoutMs = typeof options.timeout === 'number' && options.timeout > 0 ? options.timeout : 15_000;
-    const token = typeof options.token === 'string' && options.token.length > 0 ? options.token : randomUUID();
-    try {
-        const executed = await runHarness({ app, args, script, token, timeoutMs });
-        console.log(`harness finished: ${String(executed)} operation(s)`);
-        return 0;
-    } catch (error) {
-        if (error instanceof WaeHarnessError) {
-            console.error(`${error.code}: ${error.message}`);
-            return 1;
-        }
-        console.error(`harness failed: ${String(error)}`);
-        return 1;
     }
 }
 

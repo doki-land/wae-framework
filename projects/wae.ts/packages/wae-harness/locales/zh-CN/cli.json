@@ -1,0 +1,15 @@
+{
+    "cli": {
+        "intro": "WAE harness — 经 loopback 控制通道启动应用并重放操作。",
+        "cmd": {
+            "run": "启动应用并重放 JSON 操作文件"
+        },
+        "opt": {
+            "app": "在 harness 下启动的应用可执行文件",
+            "arg": "传给应用的参数（可重复）",
+            "script": "JSON 操作文件：ready / eval / waitFor / screenshot / close",
+            "timeout": "单次操作超时（毫秒）",
+            "token": "控制令牌；省略时自动生成"
+        }
+    }
+}

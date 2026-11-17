@@ -1,5 +1,5 @@
 /**
- * `wae harness`: drive a WAE app through its loopback control channel.
+ * `wae-harness`: drive a WAE app through its loopback control channel.
  *
  * The CLI allocates a loopback port and a one-shot token, starts the app with
  * `WAE_HARNESS_PORT` / `WAE_HARNESS_TOKEN`, then replays a JSON operations file

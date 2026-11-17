@@ -73,8 +73,15 @@ test('publish workflow publishes the configured set and no template placeholder'
         .map((match) => match[1]!);
     assert.deepEqual(
         [...configured].sort(),
-        ['@wae/commander', '@wae/wae', '@wae/wae-darwin-arm64', '@wae/wae-linux-x64', '@wae/wae-win32-x64'],
-        'the configured publish set is the two JS packages plus the three native platform packages',
+        [
+            '@wae/commander',
+            '@wae/wae',
+            '@wae/wae-darwin-arm64',
+            '@wae/wae-harness',
+            '@wae/wae-linux-x64',
+            '@wae/wae-win32-x64',
+        ],
+        'the configured publish set is the three JS packages plus the three native platform packages',
     );
 
     // The set lives in one place. The workflow must not enumerate packages itself.

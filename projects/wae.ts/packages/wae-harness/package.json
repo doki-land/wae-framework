@@ -1,0 +1,55 @@
+{
+    "name": "@wae/wae-harness",
+    "version": "0.0.6",
+    "type": "module",
+    "description": "WAE automation harness: in-process WebView driver over the shared platform addon",
+    "license": "Apache-2.0",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/doki-land/wae-framework.git",
+        "directory": "projects/wae.ts/packages/wae-harness"
+    },
+    "bin": {
+        "wae-harness": "dist/cli.js"
+    },
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "default": "./dist/index.js"
+        },
+        "./native": {
+            "types": "./dist/native.d.ts",
+            "default": "./dist/native.js"
+        },
+        "./driver": {
+            "types": "./dist/driver.d.ts",
+            "default": "./dist/driver.js"
+        }
+    },
+    "files": [
+        "dist",
+        "locales",
+        "readme.md"
+    ],
+    "engines": {
+        "node": ">=20"
+    },
+    "scripts": {
+        "build": "tsc -p tsconfig.json",
+        "test": "node --import ../wae-commander/scripts/resolve-ts-from-js.mjs --test --experimental-strip-types ./tests/*.test.ts"
+    },
+    "dependencies": {
+        "@wae/commander": "workspace:*"
+    },
+    "optionalDependencies": {
+        "@wae/wae-darwin-arm64": "0.0.6",
+        "@wae/wae-linux-x64": "0.0.6",
+        "@wae/wae-win32-x64": "0.0.6"
+    },
+    "devDependencies": {
+        "@types/node": "^22.15.0",
+        "typescript": "^5.8.3"
+    }
+}

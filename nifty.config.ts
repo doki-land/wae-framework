@@ -12,6 +12,7 @@ export default {
             "@wae/wae-win32-x64",
             "@wae/commander",
             "@wae/wae",
+            "@wae/wae-harness",
         ],
     },
     trust: {

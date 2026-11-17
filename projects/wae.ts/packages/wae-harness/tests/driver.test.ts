@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { loadOps, runHarness, WaeHarnessError } from '../src/harness.ts';
+import { loadOps, runHarness, WaeHarnessError } from '../src/driver.ts';
 
 function tempOps(content: unknown): string {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wae-harness-'));
@@ -100,7 +100,7 @@ net.createServer((client) => {
     );
 });
 
-test('wae harness fails fast when the app never opens the channel', async () => {
+test('runHarness fails fast when the app never opens the channel', async () => {
     const script = tempOps([{ op: 'ready' }]);
     await assert.rejects(
         runHarness({ app: process.execPath, args: ['-e', 'setTimeout(() => {}, 5000)'], script, token: 'x', timeoutMs: 400 }),

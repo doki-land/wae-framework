@@ -1,0 +1,15 @@
+{
+    "cli": {
+        "intro": "WAE harness — start an app with a loopback control channel and replay operations.",
+        "cmd": {
+            "run": "Start the app and replay a JSON operations file"
+        },
+        "opt": {
+            "app": "Application executable to start under the harness",
+            "arg": "Argument passed to the application (repeatable)",
+            "script": "JSON operations file: ready / eval / waitFor / screenshot / close",
+            "timeout": "Per-operation timeout in milliseconds",
+            "token": "Control token; generated when omitted"
+        }
+    }
+}
