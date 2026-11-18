@@ -13,6 +13,5 @@ publish = false
 serde = { workspace = true }
 serde_json = { workspace = true }
 webview = { workspace = true }
+webview-types = { workspace = true }
 
-[target.'cfg(windows)'.dev-dependencies]
-webview-win32 = { workspace = true }

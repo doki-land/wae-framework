@@ -46,6 +46,8 @@ pub use wae_macros::{class, function, object, register_module};
 /// ```
 #[cfg(feature = "webview")]
 pub mod webview {
+    /// 当前编译目标的 WebView 宿主；后端已由 `webview` 门面按目标选定。
+    pub use webview::WebViewHost;
     pub use webview::{
         AutomationError, AutomationId, Capability, CaptureOutcome, DragRect, IpcHandler, IpcOutcome, IpcSink, OpenOptions, Platform, Result,
         ScriptOutcome, WebViewError, automation_codes,
@@ -68,21 +70,6 @@ pub mod webview {
     pub fn open(options: OpenOptions, handler: Box<dyn IpcHandler>) -> Result<WebViewHost> {
         WebViewHost::open(options, handler)
     }
-
-    /// 当前目标的 WebView 宿主（Windows：Win32 + WebView2）。
-    #[cfg(target_os = "windows")]
-    pub type WebViewHost = webview::WebViewHost<webview_win32::Win32Backend>;
-
-    /// 当前目标的 WebView 宿主（macOS：WKWebView）。
-    #[cfg(target_os = "macos")]
-    pub type WebViewHost = webview::WebViewHost<webview_macos::MacosBackend>;
-
-    /// 当前目标的 WebView 宿主（Linux：WebKitGTK）。
-    #[cfg(target_os = "linux")]
-    pub type WebViewHost = webview::WebViewHost<webview_linux::LinuxBackend>;
-
-    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
-    compile_error!("`wae::webview` 只支持 Windows / macOS / Linux；其它目标没有 WebView 后端");
 }
 
 /// `wae::harness`：进程内自动化驱动与 loopback 控制通道（feature `harness`，默认开启）。
@@ -94,17 +81,8 @@ pub mod webview {
 pub mod harness {
     pub use wae_harness::{DEFAULT_TIMEOUT, Harness, HarnessError, Result, serve_connection, serve_from_env};
 
-    /// 当前目标的 harness（Windows：Win32 + WebView2）。
-    #[cfg(target_os = "windows")]
-    pub type PlatformHarness = Harness<webview_win32::Win32Backend>;
-
-    /// 当前目标的 harness（macOS：WKWebView）。
-    #[cfg(target_os = "macos")]
-    pub type PlatformHarness = Harness<webview_macos::MacosBackend>;
-
-    /// 当前目标的 harness（Linux：WebKitGTK）。
-    #[cfg(target_os = "linux")]
-    pub type PlatformHarness = Harness<webview_linux::LinuxBackend>;
+    /// 当前编译目标的 harness；后端已由 `webview` 门面按目标选定。
+    pub type PlatformHarness = Harness<webview::PlatformBackend>;
 }
 
 /// `wae::shell`：用系统关联程序启动文件（feature `shell`，默认开启）。

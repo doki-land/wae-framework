@@ -7,8 +7,7 @@ fn main() {
     use std::time::Duration;
 
     use wae_harness::Harness;
-    use webview::OpenOptions;
-    use webview_win32::Win32Backend;
+    use webview::{OpenOptions, PlatformBackend};
 
     struct Noop;
     impl webview::IpcHandler for Noop {
@@ -18,7 +17,7 @@ fn main() {
     }
 
     let options = OpenOptions::from_url("data:text/html,<title>smoke</title><h1 id=title>harness</h1>", "wae-harness smoke").with_hidden(true);
-    let mut harness = match Harness::<Win32Backend>::open(options, Box::new(Noop)) {
+    let mut harness = match Harness::<PlatformBackend>::open(options, Box::new(Noop)) {
         Ok(harness) => harness,
         Err(error) => {
             eprintln!("open failed: {error}");

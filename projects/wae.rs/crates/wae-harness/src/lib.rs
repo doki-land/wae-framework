@@ -12,9 +12,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use webview::{
-    AutomationId, CaptureOutcome, IpcHandler, OpenOptions, ScriptOutcome, WebViewBackend, WebViewError, WebViewHost, automation_codes,
-};
+use webview::{AutomationId, CaptureOutcome, IpcHandler, OpenOptions, ScriptOutcome, WebViewBackend, WebViewError, automation_codes};
+// 本层对后端泛型化，因此直接取契约库的 `WebViewHost<B>`，而不是门面已绑定具体后端的别名。
+use webview_types::WebViewHost;
 
 /// 单次操作默认超时。
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
