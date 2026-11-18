@@ -36,10 +36,10 @@ libloading = "0.9"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # 外部绑定层（boost-binding.rs）：WebView 宿主合同与三平台后端，按完整 rev 钉住
-binding-webview = { git = "https://github.com/oovm/boost-binding.rs.git", rev = "4dbbecb45ce6f3a89203803ede52ed909a31bdec" }
-binding-webview-win32 = { git = "https://github.com/oovm/boost-binding.rs.git", rev = "4dbbecb45ce6f3a89203803ede52ed909a31bdec" }
-binding-webview-macos = { git = "https://github.com/oovm/boost-binding.rs.git", rev = "4dbbecb45ce6f3a89203803ede52ed909a31bdec" }
-binding-webview-linux = { git = "https://github.com/oovm/boost-binding.rs.git", rev = "4dbbecb45ce6f3a89203803ede52ed909a31bdec" }
+webview = { git = "https://github.com/oovm/boost-binding.rs.git", rev = "7c45fb7b920547d84dac369ddcbc2648e5450308" }
+webview-win32 = { git = "https://github.com/oovm/boost-binding.rs.git", rev = "7c45fb7b920547d84dac369ddcbc2648e5450308" }
+webview-macos = { git = "https://github.com/oovm/boost-binding.rs.git", rev = "7c45fb7b920547d84dac369ddcbc2648e5450308" }
+webview-linux = { git = "https://github.com/oovm/boost-binding.rs.git", rev = "7c45fb7b920547d84dac369ddcbc2648e5450308" }
 
 [profile.release]
 lto = true

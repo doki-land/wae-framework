@@ -1,6 +1,6 @@
 //! 安装包封装的失败分类；每个变体都有稳定 `code()`，下游按字段判别，
 //! 禁止匹配错误字符串。平台或格式缺少能力时用 [`InstallerError::Unsupported`]，
-//! 不伪造成功（与 `wae-harness` / `binding-webview` 同一口径）。
+//! 不伪造成功（与 `wae-harness` / `webview` 同一口径）。
 
 /// 编译目标平台；与 `wae::webview::Platform` 同形，独立定义以保持本 crate
 /// 不依赖 WebView 合同。

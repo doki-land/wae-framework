@@ -1,6 +1,6 @@
 //! WAE 自动化 harness：在进程内驱动一个真实 WebView 宿主。
 //!
-//! 只依赖 [`binding_webview`] 合同，不依赖具体平台后端；平台能力由后端实现，
+//! 只依赖 [`webview`] 合同，不依赖具体平台后端；平台能力由后端实现，
 //! 缺能力时沿用 `WebViewError::Unsupported`，本 crate 不伪造成功。
 //!
 //! 所有等待都驱动 `WebViewHost::pump()`，不在其它线程碰窗口，也不忙等。
@@ -12,7 +12,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use binding_webview::{
+use webview::{
     AutomationId, CaptureOutcome, IpcHandler, OpenOptions, ScriptOutcome, WebViewBackend, WebViewError, WebViewHost, automation_codes,
 };
 
@@ -424,7 +424,7 @@ mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
 
-    use binding_webview::{IpcOutcome, IpcSink, Platform, Result as WebViewResult};
+    use webview::{IpcOutcome, IpcSink, Platform, Result as WebViewResult};
 
     /// 假后端：记录脚本，第 `complete_after` 次 pump 后产出结果。
     struct FakeBackend {

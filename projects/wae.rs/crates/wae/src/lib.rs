@@ -25,8 +25,8 @@ pub use wae_macros::{class, function, object, register_module};
 
 /// `wae::webview`：按编译目标选择 WebView 后端（feature `webview`，默认开启）。
 ///
-/// Windows → `binding-webview-win32`，macOS → `binding-webview-macos`，
-/// Linux → `binding-webview-linux`。其它目标在编译期显式失败。
+/// Windows → `webview-win32`，macOS → `webview-macos`，
+/// Linux → `webview-linux`。其它目标在编译期显式失败。
 ///
 /// # 下游约束（强制）
 ///
@@ -46,7 +46,7 @@ pub use wae_macros::{class, function, object, register_module};
 /// ```
 #[cfg(feature = "webview")]
 pub mod webview {
-    pub use binding_webview::{
+    pub use webview::{
         AutomationError, AutomationId, Capability, CaptureOutcome, DragRect, IpcHandler, IpcOutcome, IpcSink, OpenOptions, Platform, Result,
         ScriptOutcome, WebViewError, automation_codes,
     };
@@ -71,15 +71,15 @@ pub mod webview {
 
     /// 当前目标的 WebView 宿主（Windows：Win32 + WebView2）。
     #[cfg(target_os = "windows")]
-    pub type WebViewHost = binding_webview::WebViewHost<binding_webview_win32::Win32Backend>;
+    pub type WebViewHost = webview::WebViewHost<webview_win32::Win32Backend>;
 
     /// 当前目标的 WebView 宿主（macOS：WKWebView）。
     #[cfg(target_os = "macos")]
-    pub type WebViewHost = binding_webview::WebViewHost<binding_webview_macos::MacosBackend>;
+    pub type WebViewHost = webview::WebViewHost<webview_macos::MacosBackend>;
 
     /// 当前目标的 WebView 宿主（Linux：WebKitGTK）。
     #[cfg(target_os = "linux")]
-    pub type WebViewHost = binding_webview::WebViewHost<binding_webview_linux::LinuxBackend>;
+    pub type WebViewHost = webview::WebViewHost<webview_linux::LinuxBackend>;
 
     #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
     compile_error!("`wae::webview` 只支持 Windows / macOS / Linux；其它目标没有 WebView 后端");
@@ -96,15 +96,15 @@ pub mod harness {
 
     /// 当前目标的 harness（Windows：Win32 + WebView2）。
     #[cfg(target_os = "windows")]
-    pub type PlatformHarness = Harness<binding_webview_win32::Win32Backend>;
+    pub type PlatformHarness = Harness<webview_win32::Win32Backend>;
 
     /// 当前目标的 harness（macOS：WKWebView）。
     #[cfg(target_os = "macos")]
-    pub type PlatformHarness = Harness<binding_webview_macos::MacosBackend>;
+    pub type PlatformHarness = Harness<webview_macos::MacosBackend>;
 
     /// 当前目标的 harness（Linux：WebKitGTK）。
     #[cfg(target_os = "linux")]
-    pub type PlatformHarness = Harness<binding_webview_linux::LinuxBackend>;
+    pub type PlatformHarness = Harness<webview_linux::LinuxBackend>;
 }
 
 /// `wae::shell`：用系统关联程序启动文件（feature `shell`，默认开启）。

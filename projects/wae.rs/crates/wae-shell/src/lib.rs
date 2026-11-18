@@ -11,7 +11,7 @@
 
 use std::path::Path;
 
-pub use binding_webview::Platform;
+pub use webview::Platform;
 
 #[cfg(target_os = "windows")]
 mod win32;
