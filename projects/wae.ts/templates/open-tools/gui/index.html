@@ -42,13 +42,13 @@
   </header>
   <main>
     Replace this page with your tool UI. The host posts IPC over a single
-    <code>wae</code> bridge on every desktop platform.
+    <code>webview</code> bridge on every desktop platform.
   </main>
   <script>
     const closeBtn = document.getElementById('closeBtn');
 
     // Host -> page. Win32 delivers through WebView2, macOS and Linux call
-    // window.__waeReceive with the same JSON string.
+    // window.__webviewReceive with the same JSON string.
     function dispatch(raw) {
       let msg;
       try {
@@ -63,7 +63,7 @@
     if (window.chrome && window.chrome.webview) {
       window.chrome.webview.addEventListener('message', (event) => dispatch(event.data));
     }
-    window.__waeReceive = dispatch;
+    window.__webviewReceive = dispatch;
 
     // Page -> host.
     function post(msg) {
@@ -73,7 +73,7 @@
         webview2.postMessage(raw);
         return true;
       }
-      const bridge = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.wae;
+      const bridge = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.webview;
       if (bridge && bridge.postMessage) {
         bridge.postMessage(raw);
         return true;

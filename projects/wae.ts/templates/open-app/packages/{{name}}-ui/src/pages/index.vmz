@@ -226,7 +226,7 @@ export default class IndexPage {
         };
         const bridge = globalThis.chrome && globalThis.chrome.webview;
         if (bridge && bridge.addEventListener) bridge.addEventListener("message", handler);
-        globalThis.__waeReceive = (text) => {
+        globalThis.__webviewReceive = (text) => {
             try {
                 handler(JSON.parse(text));
             } catch {
@@ -243,8 +243,8 @@ export default class IndexPage {
             return true;
         }
         const webkit = globalThis.webkit && globalThis.webkit.messageHandlers;
-        if (webkit && webkit.wae) {
-            webkit.wae.postMessage(payload);
+        if (webkit && webkit.webview) {
+            webkit.webview.postMessage(payload);
             return true;
         }
         this.error = "Native bridge unavailable (open this page through the host).";
