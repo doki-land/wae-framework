@@ -9,7 +9,7 @@ description = "用系统关联程序启动文件（三平台统一门面，无�
 publish = false
 
 [dependencies]
-wae-webview = { path = "../wae-webview" }
+binding-webview = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.61", features = [

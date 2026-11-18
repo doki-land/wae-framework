@@ -17,10 +17,7 @@ projects/wae.rs/crates/
   wae                 # Rust 门面库（re-export + #[function] / register_module!）
   wae-macros          # 过程宏
   wae-napi            # 自研薄 Node-API（dyn-symbols，无 napi-rs）
-  wae-webview         # 平台无关 WebView 合同（OpenOptions / WebViewBackend / WebViewError）
-  wae-webview-win32   # 自研 WebView2 宿主（pumpEvents）
-  wae-webview-macos   # 自研 WKWebView 宿主
-  wae-webview-linux   # 自研 GTK3 + WebKitGTK 宿主
+  （WebView 宿主绑定已迁出至 boost-binding.rs 仓 `binding.webview*`，门面按 git rev pin 消费并 re-export 为 `wae::webview`）
   wae-harness         # 自动化 harness：脚本执行 / 等待 / 截图 / loopback 控制通道
   wae-audit           # 审计记录：固定 schema / 脱敏 / append-only JSONL / 查询 → wae::audit
   wae-addon           # Node-API addon：version / capabilities / probe / auditQuery

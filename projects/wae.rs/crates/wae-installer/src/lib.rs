@@ -5,7 +5,7 @@
 //! exe/py/sh**（makensis、makeappx、dpkg-deb、rpmbuild、productbuild 等
 //! 全部排除）。所有产物字节由进程内 Rust 代码写出；Windows 侧允许使用
 //! 系统 DLL 的 COM/API（`appxpackaging.dll`、`msi.dll`）在进程内完成，
-//! 与 `wae-webview-win32` 使用 WebView2 COM 同一口径。
+//! 与 `binding-webview-win32` 使用 WebView2 COM 同一口径。
 //!
 //! 本轮格式：
 //!

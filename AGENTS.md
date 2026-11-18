@@ -7,7 +7,7 @@ Rules for this WAE repository.
 ```text
 @wae/commander     i18n-first TypeScript CLI framework
 @wae/wae           meta CLI bin (new / build / dist / publish)
-projects/wae.rs/   Rust facade `wae` + `wae-macros` / `wae-napi` / `wae-webview-win32`
+projects/wae.rs/   Rust facade `wae` + `wae-macros` / `wae-napi`; the WebView host binding lives in `boost-binding.rs` (`binding.webview*`), consumed via a pinned git `rev`
 projects/wae.ts/templates/   scaffolds for downstream apps (`wae new`)
 ```
 

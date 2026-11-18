@@ -6,14 +6,14 @@
 fn main() {
     use std::time::Duration;
 
+    use binding_webview::OpenOptions;
+    use binding_webview_win32::Win32Backend;
     use wae_harness::Harness;
-    use wae_webview::OpenOptions;
-    use wae_webview_win32::Win32Backend;
 
     struct Noop;
-    impl wae_webview::IpcHandler for Noop {
-        fn on_ipc(&mut self, _message: &str, _sink: &wae_webview::IpcSink) -> wae_webview::IpcOutcome {
-            wae_webview::IpcOutcome::Ignored
+    impl binding_webview::IpcHandler for Noop {
+        fn on_ipc(&mut self, _message: &str, _sink: &binding_webview::IpcSink) -> binding_webview::IpcOutcome {
+            binding_webview::IpcOutcome::Ignored
         }
     }
 

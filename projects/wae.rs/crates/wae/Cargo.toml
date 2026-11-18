@@ -12,7 +12,7 @@ publish = false
 [features]
 default = ["webview", "shell", "audit", "plugins", "harness", "installer"]
 ## 导出 `wae::webview`（按编译目标选择平台后端）
-webview = ["dep:wae-webview", "dep:wae-webview-win32", "dep:wae-webview-macos", "dep:wae-webview-linux"]
+webview = ["dep:binding-webview", "dep:binding-webview-win32", "dep:binding-webview-macos", "dep:binding-webview-linux"]
 ## 导出 `wae::shell`（系统关联程序启动文件）
 shell = ["dep:wae-shell"]
 ## 导出 `wae::audit`（审计记录与查询）
@@ -27,7 +27,7 @@ installer = ["dep:wae-installer"]
 [dependencies]
 wae-napi = { path = "../wae-napi" }
 wae-macros = { path = "../wae-macros" }
-wae-webview = { path = "../wae-webview", optional = true }
+binding-webview = { workspace = true, optional = true }
 wae-shell = { path = "../wae-shell", optional = true }
 wae-audit = { path = "../wae-audit", optional = true }
 wae-plugins = { path = "../wae-plugins", optional = true }
@@ -35,13 +35,13 @@ wae-harness = { path = "../wae-harness", optional = true }
 wae-installer = { path = "../wae-installer", optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-wae-webview-win32 = { path = "../wae-webview-win32", optional = true }
+binding-webview-win32 = { workspace = true, optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-wae-webview-macos = { path = "../wae-webview-macos", optional = true }
+binding-webview-macos = { workspace = true, optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-wae-webview-linux = { path = "../wae-webview-linux", optional = true }
+binding-webview-linux = { workspace = true, optional = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }
