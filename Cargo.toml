@@ -36,8 +36,8 @@ libloading = "0.9"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # 外部绑定层（boost-binding.rs）：WebView 门面，按完整 rev 钉住
-webview = { git = "https://github.com/oovm/boost-binding.rs.git", rev = "610e1879ac6083b426fa7def8dc75d3512dd05cb" }
-webview-types = { git = "https://github.com/oovm/boost-binding.rs.git", rev = "610e1879ac6083b426fa7def8dc75d3512dd05cb" }
+webview = { git = "https://github.com/oovm/boost-binding.rs.git", rev = "e570c136b6eacf5635166883bdd63e925e25a9b3" }
+webview-types = { git = "https://github.com/oovm/boost-binding.rs.git", rev = "e570c136b6eacf5635166883bdd63e925e25a9b3" }
 
 [profile.release]
 lto = true
