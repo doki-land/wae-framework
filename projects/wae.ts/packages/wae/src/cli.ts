@@ -8,7 +8,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { createCli, type ParsedOptions } from '@wae/commander';
+import { createCli, CliError, EXIT, type CommandContext, type CreateCliOptions, type ParsedOptions } from '@wae/commander';
 import { BUILD_CODES, WaeBuildError } from './build-error.js';
 import {
     loadConfig,
@@ -64,56 +64,68 @@ export type {
 export { WAE_WINDOW_CODES, WAE_WINDOW_HOST_SUPPORT, WAE_WINDOW_MODES, resolveWindowPolicy, windowModeSupport } from './window.js';
 export type { WaeChildWindows, WaeSecondLaunch, WaeWindowConfig, WaeWindowHostSupport, WaeWindowMode, WaeWindowPolicy } from './window.js';
 
-/** Build the product CLI (tests may call this directly). */
-export function buildCli() {
-    const cli = createCli('wae').locales(localesRoot()).intro('cli.intro');
+/**
+ * Build the product CLI (tests may call this directly).
+ *
+ * `runtime` lets an in-process host inject stdin/stdout/stderr, TTY state and
+ * env; the engine's default (real `process` streams) is used when omitted.
+ */
+export function buildCli(runtime: CreateCliOptions = {}) {
+    const cli = createCli('wae', runtime).locales(localesRoot()).intro('cli.intro');
 
     cli.command('new', 'cli.cmd.new')
-        .option('--template <name>', 'cli.opt.template', { default: 'open-tools' })
+        .option('--template <name>', 'cli.opt.template')
         .option('--with-gui', 'cli.opt.with-gui')
         .option('--out <dir>', 'cli.opt.out', { default: '.' })
-        .actionCtx(async (options, args) => cmdNew(options, args));
+        .interactive({
+            policy: 'optional',
+            promptKeys: { name: 'cli.prompt.new-name', template: 'cli.prompt.new-template' },
+            // The engine validates bare refs against option keys; the positional
+            // `name` is declared through the `config:` namespace.
+            nonInteractiveInputs: ['config:name', 'template', 'out', 'with-gui'],
+        })
+        .actionCtx(async (options, args, ctx) => cmdNew(options, args, ctx));
 
     cli.command('build', 'cli.cmd.build')
         .option('--project <dir>', 'cli.opt.project')
         .option('--package <name>', 'cli.opt.package')
         .option('--target <key>', 'cli.opt.target')
         .option('--dry-run', 'cli.opt.dry-run')
-        .actionCtx(async (options) => cmdBuild(options));
+        .actionCtx(async (options, _args, ctx) => cmdBuild(options, ctx));
 
     cli.command('dist', 'cli.cmd.dist')
         .option('--project <dir>', 'cli.opt.project', { required: true })
         .option('--package <name>', 'cli.opt.package', { required: true })
         .option('--out <dir>', 'cli.opt.dist-out', { required: true })
         .option('--file <name>', 'cli.opt.file', { required: true })
-        .actionCtx(async (options) => cmdDist(options));
+        .actionCtx(async (options, _args, ctx) => cmdDist(options, ctx));
 
     cli.command('publish', 'cli.cmd.publish')
         .option('--dir <path>...', 'cli.opt.dir', { required: true })
         .option('--tag <ref>', 'cli.opt.tag')
         .option('--cargo <path>', 'cli.opt.cargo')
         .option('--execute', 'cli.opt.execute')
-        .actionCtx(async (options) => cmdPublish(options));
+        .actionCtx(async (options, _args, ctx) => cmdPublish(options, ctx));
 
     const native = cli.command('native', 'cli.cmd.native');
     native.command('info', 'cli.cmd.native-info')
         .option('--json', 'cli.opt.json')
-        .actionCtx(async (options) => cmdNativeInfo(options));
+        .actionCtx(async (_options, _args, ctx) => cmdNativeInfo(ctx));
     native.command('build', 'cli.cmd.native-build')
         .option('--project <dir>', 'cli.opt.project')
         .option('--target <key>', 'cli.opt.target')
         .option('--dry-run', 'cli.opt.dry-run')
-        .actionCtx(async (options) => cmdNativeBuild(options));
+        .actionCtx(async (options, _args, ctx) => cmdNativeBuild(options, ctx));
     native.command('stage', 'cli.cmd.native-stage')
         .option('--project <dir>', 'cli.opt.project')
         .option('--target <key>', 'cli.opt.target')
         .option('--dry-run', 'cli.opt.dry-run')
-        .actionCtx(async (options) => cmdNativeStage(options));
+        .actionCtx(async (options, _args, ctx) => cmdNativeStage(options, ctx));
     native.command('smoke', 'cli.cmd.native-smoke')
         .option('--project <dir>', 'cli.opt.project')
         .option('--target <key>', 'cli.opt.target')
         .option('--json', 'cli.opt.json')
-        .actionCtx(async (options) => cmdNativeSmoke(options));
+        .actionCtx(async (options, _args, ctx) => cmdNativeSmoke(options, ctx));
     native.command('audit', 'cli.cmd.native-audit')
         .option('--kind <kind>', 'cli.opt.kind', { enum: ['user', 'agent'] })
         .option('--id <id>', 'cli.opt.actor-id')
@@ -122,7 +134,7 @@ export function buildCli() {
         .option('--to <ms>', 'cli.opt.to', { coerce: (raw) => nonNegativeInt(raw, '--to') })
         .option('--limit <n>', 'cli.opt.limit', { coerce: (raw) => nonNegativeInt(raw, '--limit') })
         .option('--json', 'cli.opt.json')
-        .actionCtx(async (options) => cmdNativeAudit(options));
+        .actionCtx(async (options, _args, ctx) => cmdNativeAudit(options, ctx));
 
     return cli;
 }
@@ -131,42 +143,68 @@ function isScaffoldTemplate(value: string): value is ScaffoldTemplate {
     return (SCAFFOLD_TEMPLATES as readonly string[]).includes(value);
 }
 
-async function cmdNew(options: ParsedOptions, args: string[]): Promise<number> {
-    const name = args[0]?.trim();
+async function cmdNew(options: ParsedOptions, args: string[], ctx: CommandContext): Promise<number> {
+    let name = args[0]?.trim();
+    if (!name && ctx.isInteractive()) {
+        name = (
+            await ctx.prompt.input({
+                key: 'cli.prompt.new-name',
+                validate: (value) =>
+                    SCAFFOLD_NAME_PATTERN.test(value.trim()) ? null : { code: 'cli.err.invalid-name', args: { name: value.trim() } },
+            })
+        ).trim();
+    }
     if (!name) {
-        console.error('wae new requires a name: wae new <name> [--template open-tools|open-app] [--out <dir>]');
-        return 2;
+        ctx.emitFailure({ code: 'name_required', message: ctx.t('cli.err.new-name-required') });
+        return EXIT.USAGE;
     }
     if (!SCAFFOLD_NAME_PATTERN.test(name)) {
-        console.error(`invalid app name "${name}": use lowercase kebab-case such as "open-finder"`);
-        return 2;
+        ctx.emitFailure({ code: 'invalid_name', message: ctx.t('cli.err.invalid-name', { name }) });
+        return EXIT.USAGE;
     }
-    const templateName = typeof options.template === 'string' ? options.template : 'open-tools';
+    let templateName = typeof options.template === 'string' ? options.template : undefined;
+    if (templateName === undefined && ctx.isInteractive()) {
+        templateName = await ctx.prompt.select({
+            key: 'cli.prompt.new-template',
+            choices: SCAFFOLD_TEMPLATES.map((id) => ({ value: id, labelKey: `cli.choice.template.${id}` })),
+        });
+    }
+    templateName ??= 'open-tools';
     if (!isScaffoldTemplate(templateName)) {
-        console.error(`unknown template "${templateName}": choose one of ${SCAFFOLD_TEMPLATES.join(', ')}`);
-        return 2;
+        ctx.emitFailure({
+            code: 'unknown_template',
+            message: ctx.t('cli.err.unknown-template', { template: templateName, choices: SCAFFOLD_TEMPLATES.join(', ') }),
+        });
+        return EXIT.USAGE;
     }
     const outDir = typeof options.out === 'string' ? options.out : '.';
     const withGui = templateName === 'open-app' ? true : Boolean(options['with-gui']);
     const template = templateRoot(templateName);
     if (!fs.existsSync(template)) {
-        console.error(`template directory not found: ${template}`);
-        return 1;
+        ctx.emitFailure({ code: 'template_missing', message: ctx.t('cli.err.template-missing', { template }) });
+        return EXIT.FAILURE;
     }
     const dest = path.resolve(outDir, name);
     if (fs.existsSync(dest)) {
-        console.error(`destination already exists: ${dest}`);
-        return 1;
+        ctx.emitFailure({ code: 'destination_exists', message: ctx.t('cli.err.destination-exists', { dest }) });
+        return EXIT.FAILURE;
     }
-    copyDir(template, dest);
-    rewritePlaceholders(dest, name, packageVersion());
-    formatScaffold(dest);
-    if (templateName === 'open-tools' && !withGui) {
-        removePath(path.join(dest, 'gui'));
-        removePath(path.join(dest, 'dist', 'gui'));
+    try {
+        copyDir(template, dest);
+        rewritePlaceholders(dest, name, packageVersion());
+        formatScaffold(dest, ctx);
+        if (templateName === 'open-tools' && !withGui) {
+            removePath(path.join(dest, 'gui'));
+            removePath(path.join(dest, 'dist', 'gui'));
+        }
+    } catch (error) {
+        return emitDomainFailure(ctx, error);
     }
-    console.log(`created ${dest} (template=${templateName}, with_gui=${withGui})`);
-    return 0;
+    ctx.emitResult(
+        { created: dest, template: templateName, withGui },
+        ctx.t('cli.result.new-created', { dest, template: templateName, withGui: String(withGui) }),
+    );
+    return EXIT.OK;
 }
 
 /**
@@ -176,37 +214,51 @@ async function cmdNew(options: ParsedOptions, args: string[]): Promise<number> {
  * chosen name, so the template cannot be pre-formatted for every name. Leaving
  * the scaffold unformatted makes `check:rust` fail on the very first run.
  */
-function formatScaffold(dest: string): void {
+function formatScaffold(dest: string, ctx: CommandContext): void {
     if (!fs.existsSync(path.join(dest, 'crates'))) return;
     const result = spawnSync('cargo', ['fmt', '--all'], { cwd: dest, stdio: 'inherit' });
     if (result.status !== 0) {
-        console.error(`[wae] skipped rustfmt: ${result.error?.message ?? `cargo fmt exited ${String(result.status)}`}`);
+        const detail = result.error?.message ?? `cargo fmt exited ${String(result.status)}`;
+        ctx.stderr(ctx.t('cli.err.rustfmt-skipped', { detail }));
     }
 }
 
-async function cmdBuild(options: ParsedOptions): Promise<number> {
+async function cmdBuild(options: ParsedOptions, ctx: CommandContext): Promise<number> {
     const startDir = typeof options.project === 'string' ? path.resolve(options.project) : process.cwd();
     try {
-        await runBuild({
+        const report = await runBuild({
             startDir,
             ...(typeof options.package === 'string' ? { packageOverride: options.package } : {}),
             ...(typeof options.target === 'string' ? { targetOverride: options.target } : {}),
             dryRun: options['dry-run'] === true,
+            // Step progress is diagnostic output; stdout stays reserved for the envelope.
+            log: (line) => ctx.stderr(line),
         });
-        return 0;
+        ctx.emitResult(report, ctx.t('cli.result.build-done', { root: report.root }));
+        return EXIT.OK;
     } catch (error) {
-        return buildFailure('build', error);
+        return emitDomainFailure(ctx, error);
     }
 }
 
-/** Render a structured build/config failure as JSON and return exit code 1. */
-function buildFailure(scope: string, error: unknown): number {
-    if (error instanceof WaeBuildError || error instanceof WaeConfigError) {
-        console.error(JSON.stringify(error.toJSON(), null, 2));
-        return 1;
+/**
+ * Map a caught domain error onto the failure envelope and its exit code.
+ * Structured errors keep their stable code; the failure envelope only carries
+ * `{code, message}`, so the `toJSON()` details are serialized into the message.
+ * An unsupported platform exits CAPABILITY, everything else FAILURE.
+ */
+function emitDomainFailure(ctx: CommandContext, error: unknown): number {
+    if (error instanceof CliError) throw error;
+    if (error instanceof NativeUnsupportedError) {
+        ctx.emitFailure({ code: error.code, message: JSON.stringify(error.toJSON()) });
+        return EXIT.CAPABILITY;
     }
-    console.error(`wae ${scope} failed: ${error instanceof Error ? error.message : String(error)}`);
-    return 1;
+    if (error instanceof WaeBuildError || error instanceof WaeConfigError || error instanceof NativeLoadError) {
+        ctx.emitFailure({ code: error.code, message: JSON.stringify(error.toJSON()) });
+        return EXIT.FAILURE;
+    }
+    ctx.emitFailure({ code: 'action_failed', message: error instanceof Error ? error.message : String(error) });
+    return EXIT.FAILURE;
 }
 
 type NativePlan = { root: string; native: WaeNativeConfig; target: WaeNativeTarget };
@@ -229,41 +281,49 @@ function nativePlan(options: ParsedOptions): NativePlan {
     };
 }
 
-async function cmdNativeBuild(options: ParsedOptions): Promise<number> {
+async function cmdNativeBuild(options: ParsedOptions, ctx: CommandContext): Promise<number> {
     try {
         const plan = nativePlan(options);
         const key = `${plan.target.platform}-${plan.target.arch}`;
+        const dest = path.join(plan.root, plan.target.dir, plan.target.nodeFile);
         if (options['dry-run'] === true) {
-            console.log(`[wae] native build would ${plan.native.stageOnly ? 'stage' : 'build'} \`${key}\` → ${path.join(plan.root, plan.target.dir, plan.target.nodeFile)}`);
-            return 0;
+            const action = plan.native.stageOnly ? 'stage' : 'build';
+            ctx.emitResult(
+                { dryRun: true, action, target: key, dest },
+                ctx.t('cli.result.native-build-plan', { action, target: key, dest }),
+            );
+            return EXIT.OK;
         }
         const request = nativeBuildRequest(plan.root, plan.native, plan.target);
         if (plan.native.stageOnly !== true) {
             cargoBuildNative(request);
         }
         const artifact = findNativeArtifact(request);
-        const dest = stageBuiltArtifact(artifact, path.resolve(plan.root, plan.target.dir), plan.target.nodeFile);
-        console.log(`[wae] native addon staged at ${dest}`);
-        return 0;
+        const staged = stageBuiltArtifact(artifact, path.resolve(plan.root, plan.target.dir), plan.target.nodeFile);
+        ctx.emitResult({ staged }, ctx.t('cli.result.native-staged', { dest: staged }));
+        return EXIT.OK;
     } catch (error) {
-        return buildFailure('native build', error);
+        return emitDomainFailure(ctx, error);
     }
 }
 
-async function cmdNativeStage(options: ParsedOptions): Promise<number> {
+async function cmdNativeStage(options: ParsedOptions, ctx: CommandContext): Promise<number> {
     try {
         const plan = nativePlan(options);
         const dest = path.join(plan.root, plan.target.dir, plan.target.nodeFile);
         if (options['dry-run'] === true) {
-            console.log(`[wae] native stage would copy the built cdylib for \`${plan.native.crate}\` → ${dest}`);
-            return 0;
+            ctx.emitResult(
+                { dryRun: true, action: 'stage', crate: plan.native.crate, dest },
+                ctx.t('cli.result.native-stage-plan', { crate: plan.native.crate, dest }),
+            );
+            return EXIT.OK;
         }
         const artifact = findNativeArtifact(nativeBuildRequest(plan.root, plan.native, plan.target));
         const staged = stageBuiltArtifact(artifact, path.resolve(plan.root, plan.target.dir), plan.target.nodeFile);
-        console.log(`[wae] native addon staged at ${staged}`);
-        return 0;
+        ctx.emitResult({ staged }, ctx.t('cli.result.native-staged', { dest: staged }));
+        return EXIT.OK;
     } catch (error) {
-        return buildFailure('native stage', error);
+        return emitDomainFailure(ctx, error);
     }
 }
 
@@ -280,7 +340,7 @@ type SmokeAddon = {
     auditQuery?: (filter?: { capability?: string; limit?: number }) => string;
 };
 
-async function cmdNativeSmoke(options: ParsedOptions): Promise<number> {
+async function cmdNativeSmoke(options: ParsedOptions, ctx: CommandContext): Promise<number> {
     // The audit directory is borrowed for this run only: a temp one is created on demand and
     // removed afterwards, and an inherited value is left exactly as the caller set it.
     const previousAuditDir = process.env.WAE_AUDIT_DIR;
@@ -365,19 +425,20 @@ async function cmdNativeSmoke(options: ParsedOptions): Promise<number> {
             probe: probeState,
             audit: auditState,
         };
-        if (options.json === true) {
-            console.log(JSON.stringify(summary, null, 2));
-        } else {
-            console.log(
-                `[wae] native smoke ok: ${addonPath} version=${version} platform=${String(summary.platform)} arch=${String(summary.arch)} probe=${probeState} audit=${auditState}`,
-            );
-        }
-        return 0;
+        ctx.emitResult(
+            summary,
+            ctx.t('cli.result.native-smoke-ok', {
+                addon: addonPath,
+                version,
+                platform: String(summary.platform),
+                arch: String(summary.arch),
+                probe: probeState,
+                audit: auditState,
+            }),
+        );
+        return EXIT.OK;
     } catch (error) {
-        if (error instanceof NativeLoadError || error instanceof NativeUnsupportedError) {
-            return nativeFailure(error);
-        }
-        return buildFailure('native smoke', error);
+        return emitDomainFailure(ctx, error);
     } finally {
         if (tempAuditDir !== undefined) {
             fs.rmSync(tempAuditDir, { recursive: true, force: true });
@@ -390,7 +451,7 @@ async function cmdNativeSmoke(options: ParsedOptions): Promise<number> {
     }
 }
 
-async function cmdDist(options: ParsedOptions): Promise<number> {
+async function cmdDist(options: ParsedOptions, ctx: CommandContext): Promise<number> {
     try {
         const dest = stageNative({
             projectRoot: path.resolve(String(options.project)),
@@ -398,11 +459,10 @@ async function cmdDist(options: ParsedOptions): Promise<number> {
             destDir: path.resolve(String(options.out)),
             destFileName: String(options.file),
         });
-        console.log(`staged → ${dest}`);
-        return 0;
+        ctx.emitResult({ staged: dest }, ctx.t('cli.result.dist-staged', { dest }));
+        return EXIT.OK;
     } catch (err) {
-        console.error(`wae dist failed: ${err instanceof Error ? err.message : err}`);
-        return 1;
+        return emitDomainFailure(ctx, err);
     }
 }
 
@@ -415,35 +475,24 @@ function nonNegativeInt(raw: string | boolean | string[], flag: string): number 
     return Number(text);
 }
 
-/** Render a structured native failure (code, capability, platform, attempts) as JSON. */
-function nativeFailure(error: unknown): number {
-    if (error instanceof NativeUnsupportedError || error instanceof NativeLoadError) {
-        console.error(JSON.stringify(error.toJSON(), null, 2));
-        return 1;
-    }
-    console.error(`wae native failed: ${error instanceof Error ? error.message : error}`);
-    return 1;
-}
-
-async function cmdNativeInfo(options: ParsedOptions): Promise<number> {
+async function cmdNativeInfo(ctx: CommandContext): Promise<number> {
     try {
         const report = inspectNative();
-        if (options.json === true) {
-            console.log(JSON.stringify(report, null, 2));
-            return 0;
-        }
-        console.log(`platform: ${report.platformKey}`);
-        console.log(`path: ${report.path}`);
-        console.log(`version: ${report.version}`);
-        console.log(`probe: ${report.probe.ok ? 'ok' : 'failed'} (${report.probe.platform}/${report.probe.arch})`);
-        console.log(`audit: ${String(report.capabilities.audit)} (probe entries: ${report.auditEntries})`);
-        return 0;
+        const human = [
+            `platform: ${report.platformKey}`,
+            `path: ${report.path}`,
+            `version: ${report.version}`,
+            `probe: ${report.probe.ok ? 'ok' : 'failed'} (${report.probe.platform}/${report.probe.arch})`,
+            `audit: ${String(report.capabilities.audit)} (probe entries: ${report.auditEntries})`,
+        ].join('\n');
+        ctx.emitResult(report, human);
+        return EXIT.OK;
     } catch (error) {
-        return nativeFailure(error);
+        return emitDomainFailure(ctx, error);
     }
 }
 
-async function cmdNativeAudit(options: ParsedOptions): Promise<number> {
+async function cmdNativeAudit(options: ParsedOptions, ctx: CommandContext): Promise<number> {
     const filter: NativeAuditFilter = {};
     if (typeof options.kind === 'string') {
         filter.kind = options.kind === 'agent' ? 'agent' : 'user';
@@ -466,18 +515,16 @@ async function cmdNativeAudit(options: ParsedOptions): Promise<number> {
     try {
         const addon = loadNative();
         const text = addon.auditQuery(Object.keys(filter).length ? filter : undefined);
-        if (options.json === true) {
-            console.log(text);
-            return 0;
-        }
+        let data: unknown;
         try {
-            console.log(JSON.stringify(JSON.parse(text), null, 2));
+            data = JSON.parse(text);
         } catch {
-            console.log(text);
+            data = text;
         }
-        return 0;
+        ctx.emitResult(data, typeof data === 'string' ? data : JSON.stringify(data, null, 2));
+        return EXIT.OK;
     } catch (error) {
-        return nativeFailure(error);
+        return emitDomainFailure(ctx, error);
     }
 }
 
@@ -516,64 +563,70 @@ export function resolvePublishIntent(
     return { kind: 'verify' };
 }
 
+/** Structured manifest/validation failure: stable code + locale key + safe args. */
+type PublishFailure = { code: string; key: string; args: Record<string, string> };
+
 /** Read and validate one npm package manifest (real package, exact version). */
-function readPublishManifest(dir: string): PublishManifest | string {
+function readPublishManifest(dir: string): PublishManifest | PublishFailure {
     const pack = path.resolve(dir);
     const manifestPath = path.join(pack, 'package.json');
     if (!fs.existsSync(manifestPath)) {
-        return `--dir is missing package.json: ${pack}`;
+        return { code: 'missing_package_json', key: 'cli.err.missing-package-json', args: { dir: pack } };
     }
     let manifest: { name?: unknown; version?: unknown; private?: unknown };
     try {
         manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as typeof manifest;
     } catch {
-        return `invalid package.json: ${manifestPath}`;
+        return { code: 'invalid_package_json', key: 'cli.err.invalid-package-json', args: { file: manifestPath } };
     }
     const name = typeof manifest.name === 'string' ? manifest.name : '';
     const version = typeof manifest.version === 'string' ? manifest.version : '';
     if (!name) {
-        return `package.json is missing a name: ${manifestPath}`;
+        return { code: 'missing_package_name', key: 'cli.err.missing-package-name', args: { file: manifestPath } };
     }
     if (manifest.private === true) {
-        return `${name} is private and cannot be published`;
+        return { code: 'private_package', key: 'cli.err.private-package', args: { name } };
     }
     if (!PACKAGE_VERSION_RE.test(version)) {
-        return `${name} has no exact X.Y.Z version: ${version || '<empty>'}`;
+        return { code: 'inexact_version', key: 'cli.err.inexact-version', args: { name, version: version || '<empty>' } };
     }
     return { dir: pack, name, version };
 }
 
-async function cmdPublish(options: ParsedOptions): Promise<number> {
+async function cmdPublish(options: ParsedOptions, ctx: CommandContext): Promise<number> {
     const raw = options.dir;
     const dirs = Array.isArray(raw) ? raw : typeof raw === 'string' ? [raw] : [];
     if (!dirs.length) {
-        console.error('provide at least one --dir');
-        return 2;
+        ctx.emitFailure({ code: 'dirs_required', message: ctx.t('cli.err.dirs-required') });
+        return EXIT.USAGE;
     }
     const execute = Boolean(options.execute);
 
     const manifests: PublishManifest[] = [];
     for (const dir of dirs) {
         const manifest = readPublishManifest(dir);
-        if (typeof manifest === 'string') {
-            console.error(manifest);
-            return 1;
+        if ('key' in manifest) {
+            ctx.emitFailure({ code: manifest.code, message: ctx.t(manifest.key, manifest.args) });
+            return EXIT.FAILURE;
         }
         manifests.push(manifest);
     }
     const names = new Set<string>();
     for (const manifest of manifests) {
         if (names.has(manifest.name)) {
-            console.error(`duplicate package in --dir list: ${manifest.name}`);
-            return 1;
+            ctx.emitFailure({ code: 'duplicate_package', message: ctx.t('cli.err.duplicate-package', { name: manifest.name }) });
+            return EXIT.FAILURE;
         }
         names.add(manifest.name);
     }
     const version = manifests[0]!.version;
     for (const manifest of manifests) {
         if (manifest.version !== version) {
-            console.error(`publish set versions differ: ${manifest.name}@${manifest.version} vs ${version}`);
-            return 1;
+            ctx.emitFailure({
+                code: 'versions_differ',
+                message: ctx.t('cli.err.versions-differ', { name: manifest.name, version: manifest.version, expected: version }),
+            });
+            return EXIT.FAILURE;
         }
     }
 
@@ -581,12 +634,12 @@ async function cmdPublish(options: ParsedOptions): Promise<number> {
     if (tagRef) {
         const match = RELEASE_TAG_RE.exec(tagRef);
         if (!match) {
-            console.error(`release tag must look like v<major>.<minor>.<patch>, got ${tagRef}`);
-            return 1;
+            ctx.emitFailure({ code: 'bad_tag_format', message: ctx.t('cli.err.bad-tag-format', { tag: tagRef }) });
+            return EXIT.FAILURE;
         }
         if (match[1] !== version) {
-            console.error(`tag ${tagRef} does not match package version ${version}`);
-            return 1;
+            ctx.emitFailure({ code: 'tag_mismatch', message: ctx.t('cli.err.tag-mismatch', { tag: tagRef, version }) });
+            return EXIT.FAILURE;
         }
     }
 
@@ -594,29 +647,33 @@ async function cmdPublish(options: ParsedOptions): Promise<number> {
     const cargoPath = path.resolve(cargoRaw);
     const cargoVersion = readWorkspaceVersion(cargoPath);
     if (cargoVersion === undefined) {
-        console.error(`cannot read [workspace.package] version from ${cargoPath}`);
-        return 1;
+        ctx.emitFailure({ code: 'cargo_version_missing', message: ctx.t('cli.err.cargo-version-missing', { file: cargoPath }) });
+        return EXIT.FAILURE;
     } else if (cargoVersion !== version) {
-        console.error(`Cargo [workspace.package] version ${cargoVersion} does not match npm package version ${version}`);
-        return 1;
+        ctx.emitFailure({
+            code: 'cargo_version_mismatch',
+            message: ctx.t('cli.err.cargo-version-mismatch', { cargo: cargoVersion, version }),
+        });
+        return EXIT.FAILURE;
     }
 
     const intent = resolvePublishIntent(version, { execute, env: process.env });
     if (intent.kind === 'refused') {
-        console.error(intent.message);
-        return 2;
+        ctx.emitFailure({ code: 'publish_refused', message: ctx.t('cli.err.publish-refused', { version }) });
+        return EXIT.USAGE;
     }
 
     if (intent.kind === 'verify') {
-        const tagText = tagRef ? ` for ${tagRef}` : '';
-        console.log(`verified ${manifests.length} package(s) at ${version}${tagText}; push tag v${version} to publish via Trusted Publisher (OIDC)`);
+        const tagText = tagRef ? ctx.t('cli.result.publish-verified-tag', { tag: tagRef }) : '';
+        const lines = [ctx.t('cli.result.publish-verified', { count: String(manifests.length), version, tagSuffix: tagText })];
         for (const manifest of manifests) {
-            console.log(`  ${manifest.name}@${manifest.version} → ${manifest.dir}`);
+            lines.push(`  ${manifest.name}@${manifest.version} → ${manifest.dir}`);
         }
-        return 0;
+        ctx.emitResult({ version, tag: tagRef || null, packages: manifests }, lines.join('\n'));
+        return EXIT.OK;
     }
 
-    console.log(`publishing ${version} as the 0.0.0 placeholder stub (Trusted Publisher setup only)`);
+    ctx.emitResult({ version, placeholder: true }, ctx.t('cli.result.publishing-placeholder', { version }));
     const args = ['publish', '--access', 'public'];
     for (const manifest of manifests) {
         // `npm` is a `.cmd` shim on Windows, so it needs a shell there. Pass a
@@ -625,11 +682,11 @@ async function cmdPublish(options: ParsedOptions): Promise<number> {
             ? spawnSync(`npm ${args.join(' ')}`, { cwd: manifest.dir, stdio: 'inherit', shell: true })
             : spawnSync('npm', args, { cwd: manifest.dir, stdio: 'inherit' });
         if (result.status !== 0) {
-            console.error(`npm publish failed: ${manifest.name} (${manifest.dir})`);
-            return 1;
+            ctx.emitFailure({ code: 'npm_publish_failed', message: ctx.t('cli.err.npm-publish-failed', { name: manifest.name, dir: manifest.dir }) });
+            return EXIT.FAILURE;
         }
     }
-    return 0;
+    return EXIT.OK;
 }
 
 async function main(): Promise<void> {

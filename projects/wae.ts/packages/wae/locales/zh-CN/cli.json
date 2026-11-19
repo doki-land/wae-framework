@@ -35,6 +35,50 @@
             "from": "时间下界（毫秒）",
             "to": "时间上界（毫秒）",
             "limit": "审计记录条数上限"
+        },
+        "prompt": {
+            "new-name": "项目名（小写 kebab-case，如 open-finder）：",
+            "new-template": "选择脚手架模板："
+        },
+        "choice": {
+            "template": {
+                "open-tools": "open-tools（最小工具）",
+                "open-app": "open-app（Open-X 应用骨架）"
+            }
+        },
+        "err": {
+            "new-name-required": "wae new 需要项目名：wae new <name> [--template open-tools|open-app] [--out <dir>]",
+            "invalid-name": "应用名 \"{name}\" 不合法：请使用小写 kebab-case，如 \"open-finder\"",
+            "unknown-template": "未知模板 \"{template}\"：可选 {choices}",
+            "template-missing": "模板目录不存在：{template}",
+            "destination-exists": "目标目录已存在：{dest}",
+            "rustfmt-skipped": "已跳过 rustfmt：{detail}",
+            "dirs-required": "请至少提供一个 --dir",
+            "missing-package-json": "--dir 缺少 package.json：{dir}",
+            "invalid-package-json": "package.json 无法解析：{file}",
+            "missing-package-name": "package.json 缺少 name：{file}",
+            "private-package": "{name} 是私有包，不能发布",
+            "inexact-version": "{name} 的版本不是精确 X.Y.Z：{version}",
+            "duplicate-package": "--dir 列表中重复的包：{name}",
+            "versions-differ": "发布集版本不一致：{name}@{version} 与 {expected}",
+            "bad-tag-format": "发布 tag 必须形如 v<major>.<minor>.<patch>，实际为 {tag}",
+            "tag-mismatch": "tag {tag} 与包版本 {version} 不一致",
+            "cargo-version-missing": "无法从 {file} 读取 [workspace.package] 版本",
+            "cargo-version-mismatch": "Cargo [workspace.package] 版本 {cargo} 与 npm 包版本 {version} 不一致",
+            "publish-refused": "本地发布 {version} 已禁用：请推送 tag v{version} 并由 OIDC 工作流发布，本地 --execute 仅覆盖 0.0.0 占位 stub",
+            "npm-publish-failed": "npm publish 失败：{name}（{dir}）"
+        },
+        "result": {
+            "new-created": "已创建 {dest}（template={template}, with_gui={withGui}）",
+            "build-done": "构建完成：{root}",
+            "native-build-plan": "原生构建将{action} `{target}` → {dest}",
+            "native-stage-plan": "原生暂存将复制已构建 cdylib `{crate}` → {dest}",
+            "native-staged": "原生 addon 已暂存：{dest}",
+            "dist-staged": "已暂存 → {dest}",
+            "native-smoke-ok": "原生冒烟通过：{addon} version={version} platform={platform} arch={arch} probe={probe} audit={audit}",
+            "publish-verified": "已校验 {count} 个包 @ {version}{tagSuffix}；推送 tag v{version} 即经 Trusted Publisher（OIDC）发布",
+            "publish-verified-tag": "（tag {tag}）",
+            "publishing-placeholder": "正在发布 {version} 的 0.0.0 占位 stub（仅用于配置 Trusted Publisher）"
         }
     }
 }

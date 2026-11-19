@@ -35,6 +35,50 @@
             "from": "Lower bound timestamp in milliseconds",
             "to": "Upper bound timestamp in milliseconds",
             "limit": "Maximum number of audit records"
+        },
+        "prompt": {
+            "new-name": "Project name (lowercase kebab-case, e.g. open-finder):",
+            "new-template": "Choose a scaffold template:"
+        },
+        "choice": {
+            "template": {
+                "open-tools": "open-tools (minimal tool)",
+                "open-app": "open-app (Open-X application skeleton)"
+            }
+        },
+        "err": {
+            "new-name-required": "wae new requires a name: wae new <name> [--template open-tools|open-app] [--out <dir>]",
+            "invalid-name": "invalid app name \"{name}\": use lowercase kebab-case such as \"open-finder\"",
+            "unknown-template": "unknown template \"{template}\": choose one of {choices}",
+            "template-missing": "template directory not found: {template}",
+            "destination-exists": "destination already exists: {dest}",
+            "rustfmt-skipped": "skipped rustfmt: {detail}",
+            "dirs-required": "provide at least one --dir",
+            "missing-package-json": "--dir is missing package.json: {dir}",
+            "invalid-package-json": "invalid package.json: {file}",
+            "missing-package-name": "package.json is missing a name: {file}",
+            "private-package": "{name} is private and cannot be published",
+            "inexact-version": "{name} has no exact X.Y.Z version: {version}",
+            "duplicate-package": "duplicate package in --dir list: {name}",
+            "versions-differ": "publish set versions differ: {name}@{version} vs {expected}",
+            "bad-tag-format": "release tag must look like v<major>.<minor>.<patch>, got {tag}",
+            "tag-mismatch": "tag {tag} does not match package version {version}",
+            "cargo-version-missing": "cannot read [workspace.package] version from {file}",
+            "cargo-version-mismatch": "Cargo [workspace.package] version {cargo} does not match npm package version {version}",
+            "publish-refused": "local publish of {version} is disabled; push tag v{version} and let the OIDC workflow publish. Local --execute only covers the 0.0.0 placeholder stub",
+            "npm-publish-failed": "npm publish failed: {name} ({dir})"
+        },
+        "result": {
+            "new-created": "created {dest} (template={template}, with_gui={withGui})",
+            "build-done": "build ok: {root}",
+            "native-build-plan": "native build would {action} `{target}` → {dest}",
+            "native-stage-plan": "native stage would copy the built cdylib for `{crate}` → {dest}",
+            "native-staged": "native addon staged at {dest}",
+            "dist-staged": "staged → {dest}",
+            "native-smoke-ok": "native smoke ok: {addon} version={version} platform={platform} arch={arch} probe={probe} audit={audit}",
+            "publish-verified": "verified {count} package(s) at {version}{tagSuffix}; push tag v{version} to publish via Trusted Publisher (OIDC)",
+            "publish-verified-tag": " for {tag}",
+            "publishing-placeholder": "publishing {version} as the 0.0.0 placeholder stub (Trusted Publisher setup only)"
         }
     }
 }

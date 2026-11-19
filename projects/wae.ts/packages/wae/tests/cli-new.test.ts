@@ -3,10 +3,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { PassThrough } from 'node:stream';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { buildCli } from '../src/cli.ts';
 import { packageVersion, templateRoot } from '../src/paths.ts';
+
+/** Non-interactive runtime: scaffolds are machine-driven even on a dev TTY. */
+const scripted = () => buildCli({ isTty: false });
 
 const PACKAGE_ROOT = fileURLToPath(new URL('..', import.meta.url));
 const VENDOR_SCRIPT = path.join(PACKAGE_ROOT, 'scripts', 'vendor-templates.mjs');
@@ -20,7 +24,7 @@ test('wae new scaffolds without gui by default', async () => {
     const orig = console.log;
     console.log = (...a: unknown[]) => logs.push(a.map(String).join(' '));
     try {
-        const code = await buildCli().parse(['new', name, '--out', tmp]);
+        const code = await scripted().parse(['new', name, '--out', tmp]);
         assert.equal(code, 0);
         const dest = path.join(tmp, name);
         assert.ok(fs.existsSync(path.join(dest, 'package.json')));
@@ -41,7 +45,7 @@ test('wae new --with-gui keeps gui folder', async () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wae-new-gui-'));
     const name = 'demo-gui';
     try {
-        const code = await buildCli().parse(['new', name, '--out', tmp, '--with-gui']);
+        const code = await scripted().parse(['new', name, '--out', tmp, '--with-gui']);
         assert.equal(code, 0);
         assert.ok(fs.existsSync(path.join(tmp, name, 'gui')));
     } finally {
@@ -68,7 +72,7 @@ test('wae new --template open-app scaffolds the full application skeleton', asyn
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wae-new-app-'));
     const name = 'demo-app';
     try {
-        const code = await buildCli().parse(['new', name, '--out', tmp, '--template', 'open-app']);
+        const code = await scripted().parse(['new', name, '--out', tmp, '--template', 'open-app']);
         assert.equal(code, 0);
         const dest = path.join(tmp, name);
         assert.ok(fs.existsSync(path.join(dest, 'Cargo.toml')));
@@ -124,7 +128,7 @@ test('generated open-tools CLI runs only as the entry point', async () => {
     const name = 'demo-tool';
     const marker = path.join(tmp, 'node_modules', '@wae', 'commander', 'parsed-marker.txt');
     try {
-        assert.equal(await buildCli().parse(['new', name, '--out', tmp]), 0);
+        assert.equal(await scripted().parse(['new', name, '--out', tmp]), 0);
         const cliPath = path.join(tmp, name, 'src', 'cli.ts');
         assert.ok(fs.existsSync(cliPath));
 
@@ -139,6 +143,7 @@ test('generated open-tools CLI runs only as the entry point', async () => {
             path.join(commanderDir, 'index.js'),
             [
                 "import fs from 'node:fs';",
+                'export const EXIT = { OK: 0, FAILURE: 1, USAGE: 2, CAPABILITY: 3, CANCELED: 4, ACTION_REQUIRED: 5 };',
                 'export function createCli() {',
                 '    const cli = {',
                 '        locales() { return cli; },',
@@ -214,11 +219,56 @@ test('wae new rejects unknown templates and invalid names', async () => {
     const orig = console.error;
     console.error = (...a: unknown[]) => errors.push(a.map(String).join(' '));
     try {
-        assert.equal(await buildCli().parse(['new', 'demo-app', '--out', tmp, '--template', 'nope']), 2);
-        assert.equal(await buildCli().parse(['new', 'Demo_App', '--out', tmp]), 2);
+        assert.equal(await scripted().parse(['new', 'demo-app', '--out', tmp, '--template', 'nope']), 2);
+        assert.equal(await scripted().parse(['new', 'Demo_App', '--out', tmp]), 2);
         assert.equal(errors.length, 2);
     } finally {
         console.error = orig;
+        fs.rmSync(tmp, { recursive: true, force: true });
+    }
+});
+
+test('wae new without a name is a usage failure when not interactive', async () => {
+    const errors: string[] = [];
+    const code = await buildCli({ isTty: false, env: {}, stderr: (text) => errors.push(text) }).parse(['new']);
+    assert.equal(code, 2);
+    assert.equal(errors.length, 1);
+    assert.match(errors[0]!, /name_required/);
+});
+
+test('wae new --json without a name emits exactly one failure envelope', async () => {
+    const out: string[] = [];
+    const code = await buildCli({ isTty: true, env: {}, stdout: (text) => out.push(text) }).parse(['new', '--json']);
+    assert.equal(code, 2);
+    assert.equal(out.length, 1);
+    const envelope = JSON.parse(out[0]!) as { schema: string; ok: boolean; error: { code: string; message: string } };
+    assert.equal(envelope.schema, 'wae.cli-result/v0');
+    assert.equal(envelope.ok, false);
+    assert.equal(envelope.error.code, 'name_required');
+});
+
+test('wae new prompts for name and template when interactive', async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wae-new-prompt-'));
+    const stdin = new PassThrough();
+    stdin.write('demo-prompted\n');
+    const errors: string[] = [];
+    const cli = buildCli({
+        stdin,
+        isTty: true,
+        env: {},
+        stdout: () => {},
+        stderr: (text) => {
+            errors.push(text);
+            if (text.includes('1)')) stdin.write('1\n');
+        },
+    });
+    try {
+        assert.equal(await cli.parse(['new', '--out', tmp]), 0);
+        assert.ok(fs.existsSync(path.join(tmp, 'demo-prompted', 'package.json')));
+        assert.ok(errors.some((line) => line.includes('Project name')));
+        assert.ok(errors.some((line) => line.includes('Choose a scaffold template')));
+    } finally {
+        stdin.end();
         fs.rmSync(tmp, { recursive: true, force: true });
     }
 });

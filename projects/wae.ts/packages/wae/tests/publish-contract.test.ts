@@ -11,7 +11,7 @@ const workflowsDir = path.join(repoRoot, '.github', 'workflows');
 const publishWorkflow = fs.readFileSync(path.join(workflowsDir, 'publish-npm.yml'), 'utf8');
 const cliSource = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../src/cli.ts'), 'utf8');
 
-/** Run the CLI in-process and capture its output. */
+/** Run the CLI in-process and capture its output (locale pinned to en-US). */
 async function runCli(argv: string[]): Promise<{ code: number; out: string; err: string }> {
     const out: string[] = [];
     const err: string[] = [];
@@ -20,7 +20,7 @@ async function runCli(argv: string[]): Promise<{ code: number; out: string; err:
     console.log = (...args: unknown[]) => out.push(args.map(String).join(' '));
     console.error = (...args: unknown[]) => err.push(args.map(String).join(' '));
     try {
-        const code = await buildCli().parse(argv);
+        const code = await buildCli({ env: { ...process.env, LOCALE: 'en-US' } }).parse(argv);
         return { code, out: out.join('\n'), err: err.join('\n') };
     } finally {
         console.log = origLog;
