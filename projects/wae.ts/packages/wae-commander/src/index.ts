@@ -34,6 +34,7 @@ export { CliError, EXIT, SecretInput } from './types.js';
 
 export {
     COMMANDER_FALLBACK_EN_US,
+    COMMANDER_FALLBACK_ZH_CN,
     clearLocalesCache,
     createLocalizeFromLocales,
     flattenCatalog,

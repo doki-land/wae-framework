@@ -8,6 +8,8 @@ import assert from 'node:assert/strict';
 import {
     assertCatalogCoverage,
     clearLocalesCache,
+    COMMANDER_FALLBACK_EN_US,
+    COMMANDER_FALLBACK_ZH_CN,
     createCli,
     createLocalizeFromLocales,
     flattenCatalog,
@@ -224,5 +226,44 @@ describe('@wae/commander locales + parse', () => {
         assertCatalogCoverage(cli, loadCatalog('en-US', fixturesRoot));
 
         assert.throws(() => assertCatalogCoverage(cli, { 'cli.intro': 'x', 'cli.cmd.build': 'y' }));
+    });
+});
+
+describe('commander fallback catalogs (en-US + zh-CN)', () => {
+    const engineKeys = [
+        'commander.prompt.confirm_choices',
+        'commander.prompt.select_invalid',
+        'commander.prompt.await_action_hint',
+        'commander::interactive_unavailable',
+        'commander::interaction_busy',
+        'commander::password_unsupported',
+        'commander::prompt_canceled',
+        'commander::prompt_timeout',
+        'commander::action_required',
+        'commander::interactive_spec_invalid',
+    ];
+
+    it('both catalogs carry every key the interactive engine references', () => {
+        for (const key of engineKeys) {
+            assert.ok(COMMANDER_FALLBACK_EN_US[key], `en-US missing ${key}`);
+            assert.ok(COMMANDER_FALLBACK_ZH_CN[key], `zh-CN missing ${key}`);
+        }
+    });
+
+    it('the two catalogs share an identical key set with non-empty values', () => {
+        const en = Object.keys(COMMANDER_FALLBACK_EN_US).sort();
+        const zh = Object.keys(COMMANDER_FALLBACK_ZH_CN).sort();
+        assert.deepEqual(zh, en);
+        for (const [key, value] of Object.entries(COMMANDER_FALLBACK_ZH_CN)) {
+            assert.ok(value.length > 0, `empty zh-CN value for ${key}`);
+        }
+    });
+
+    it('the fallback chain resolves interactive codes to English text', () => {
+        assert.equal(translateWithFallback('commander::prompt_canceled', undefined, {}), 'prompt canceled');
+        assert.equal(
+            translateWithFallback('commander::action_required', { actionId: 'dns-01' }, {}),
+            'external action `dns-01` is required before this command can continue',
+        );
     });
 });
