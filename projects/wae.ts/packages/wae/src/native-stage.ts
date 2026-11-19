@@ -17,7 +17,9 @@ export function hostKey(): string {
 
 /**
  * Resolve exactly one native target: CLI override first, then `native.targetEnv`,
- * then the host. Cross targets require `crossCompile: 'allow'`.
+ * then the host. A request is either a `<platform>-<arch>` key or the declared
+ * Rust triple, so CI matrices that carry triples need no second mapping table.
+ * Cross targets require `crossCompile: 'allow'`.
  */
 export function selectNativeTarget(native: WaeNativeConfig, override: string | undefined): WaeNativeTarget {
     const host = hostKey();
@@ -27,19 +29,20 @@ export function selectNativeTarget(native: WaeNativeConfig, override: string | u
     const requested = override?.trim() ?? envKey;
     const key = requested === undefined || requested === '' ? host : requested;
     const declared = native.targets.map((target) => `${target.platform}-${target.arch}`);
-    const target = native.targets.find((entry) => `${entry.platform}-${entry.arch}` === key);
+    const target = native.targets.find((entry) => `${entry.platform}-${entry.arch}` === key || entry.triple === key);
     if (!target) {
         throw new WaeBuildError(
             BUILD_CODES.targetMissing,
-            `native target \`${key}\` is not declared in ${WAE_CONFIG_FILE}; declared: ${declared.join(', ')}`,
+            `native target \`${key}\` is not declared in ${WAE_CONFIG_FILE}; declared: ${declared.join(', ')} (or their triples)`,
             { platform: key, attempts: declared },
         );
     }
-    if (key !== host && (native.crossCompile ?? 'reject') === 'reject') {
+    const selected = `${target.platform}-${target.arch}`;
+    if (selected !== host && (native.crossCompile ?? 'reject') === 'reject') {
         throw new WaeBuildError(
             BUILD_CODES.targetMissing,
-            `native target \`${key}\` differs from host \`${host}\`; cross compilation is rejected, run the build on that platform`,
-            { platform: key, attempts: declared },
+            `native target \`${selected}\` differs from host \`${host}\`; cross compilation is rejected, run the build on that platform`,
+            { platform: selected, attempts: declared },
         );
     }
     return target;

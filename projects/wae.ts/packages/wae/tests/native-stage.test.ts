@@ -67,6 +67,60 @@ export default defineConfig({
     }
 });
 
+test('`native stage` selects a target declared by its Rust triple', async () => {
+    const root = stageProject(`
+export default defineConfig({
+    native: {
+        crate: 'tool-napi',
+        targetEnv: 'WAE_TRIPLE_TARGET',
+        targets: [{
+            platform: '${process.platform}',
+            arch: '${process.arch}',
+            triple: 'host-rust-triple',
+            package: '@scope/tool',
+            nodeFile: 'tool.node',
+            dir: 'platforms/tool',
+        }],
+    },
+});
+`);
+    const previous = process.env.WAE_TRIPLE_TARGET;
+    process.env.WAE_TRIPLE_TARGET = 'host-rust-triple';
+    try {
+        // The host triple names the host target, so `crossCompile: 'reject'` must stand.
+        const code = await buildCli().parse(['native', 'stage', '--project', root, '--dry-run']);
+        assert.equal(code, 0);
+    } finally {
+        if (previous === undefined) delete process.env.WAE_TRIPLE_TARGET;
+        else process.env.WAE_TRIPLE_TARGET = previous;
+        fs.rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test('`native stage` rejects an undeclared triple', async () => {
+    const root = stageProject(`
+export default defineConfig({
+    native: {
+        crate: 'tool-napi',
+        targets: [{
+            platform: '${process.platform}',
+            arch: '${process.arch}',
+            triple: 'host-rust-triple',
+            package: '@scope/tool',
+            nodeFile: 'tool.node',
+            dir: 'platforms/tool',
+        }],
+    },
+});
+`);
+    try {
+        const code = await buildCli().parse(['native', 'stage', '--project', root, '--target', 'sparc64-unknown-none', '--dry-run']);
+        assert.equal(code, 1);
+    } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+    }
+});
+
 test('cargo spawn failures report the underlying error', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wae-cargo-spawn-'));
     fs.writeFileSync(path.join(root, 'Cargo.toml'), '[workspace]\n');
