@@ -282,6 +282,9 @@ function validateInteractiveSpec(spec: InteractiveSpec, where: string, optionKey
     if (spec.policy === 'required' && Object.keys(promptKeys).length === 0) {
         bad('policy `required` needs at least one prompt key');
     }
+    if (spec.policy === 'required' && (spec.nonInteractiveInputs?.length ?? 0) === 0) {
+        bad('policy `required` needs at least one machine input path');
+    }
     const refs = [...(spec.nonInteractiveInputs ?? []), ...(spec.continuation?.resumeInputs ?? [])];
     for (const entry of refs) {
         if (typeof entry !== 'string' || entry.length === 0) bad('input reference must be a non-empty string');
@@ -294,6 +297,34 @@ function validateInteractiveSpec(spec: InteractiveSpec, where: string, optionKey
             bad(`unknown input reference \`${entry}\``);
         }
     }
+}
+
+/** Frozen machine-result envelope schema id (dual-host contract §6). */
+export const CLI_RESULT_SCHEMA = 'wae.cli-result/v0';
+
+/** Drop unset descriptor fields so the envelope carries only declared facts. */
+function cleanActionRequired(descriptor: ActionRequiredDescriptor): Record<string, unknown> {
+    const out: Record<string, unknown> = { actionId: descriptor.actionId };
+    if (descriptor.statusRef !== undefined) out.statusRef = descriptor.statusRef;
+    if (descriptor.expiresAt !== undefined) out.expiresAt = descriptor.expiresAt;
+    if (descriptor.nextAction !== undefined) out.nextAction = descriptor.nextAction;
+    return out;
+}
+
+/**
+ * Failure envelope for a thrown error. Arbitrary wrapped messages never enter
+ * the envelope: `commander::action_failed` reports the stable code only.
+ */
+function failureEnvelope(err: unknown, t: LocalizePlugin['t']): Record<string, unknown> {
+    if (err instanceof CliError) {
+        const message = err.code === 'commander::action_failed'
+            ? err.code
+            : localizedOrId(t, err.code, err.args) || err.code;
+        const envelope: Record<string, unknown> = { schema: CLI_RESULT_SCHEMA, ok: false, error: { code: err.code, message } };
+        if (err.actionRequired !== undefined) envelope.actionRequired = cleanActionRequired(err.actionRequired);
+        return envelope;
+    }
+    return { schema: CLI_RESULT_SCHEMA, ok: false, error: { code: 'commander::action_failed', message: 'commander::action_failed' } };
 }
 
 /** Command action after argv is parsed (legacy API — no context). */
@@ -482,6 +513,13 @@ class CliBuilder implements Cli {
         else console.log(text);
     }
 
+    /** Write the machine envelope to stdout exactly once per run (JSON mode). */
+    private writeEnvelope(envelope: Record<string, unknown>, state: { written: boolean }): void {
+        if (state.written) return;
+        state.written = true;
+        this.writeOut(JSON.stringify(envelope));
+    }
+
     /** Final stderr writer (diagnostics / prompts / help-in-json-mode). */
     private writeErr(text: string): void {
         if (this.runtime.stderr) this.runtime.stderr(text);
@@ -614,6 +652,38 @@ class CliBuilder implements Cli {
         walk(this.roots.map((r) => r.def), []);
     }
 
+    /**
+     * When locales are configured, every declared prompt key must exist in the
+     * loaded catalog. Runs after localize is rebuilt from argv so a missing
+     * `cli.prompt.*` entry fails as a registration error, not at prompt time.
+     */
+    private validateInteractivePromptKeys(t: LocalizePlugin['t']): void {
+        if (!this.localesRoot) return;
+        const walk = (defs: CommandDef[], path: string[]): void => {
+            for (const d of defs) {
+                const token = d.names[0] ?? '?';
+                const here = [...path, token].join(' ');
+                const specs: InteractiveSpec[] = [];
+                if (d.interactive) specs.push(d.interactive);
+                for (const o of d.options) {
+                    if (o.config?.interactive) specs.push(o.config.interactive);
+                }
+                for (const spec of specs) {
+                    for (const [slot, key] of Object.entries(spec.promptKeys ?? {})) {
+                        if (t(key) === `{{${key}}}`) {
+                            throw CliError.configError('commander::interactive_spec_invalid', {
+                                command: here,
+                                detail: `prompt key \`${key}\` for slot \`${slot}\` is missing from the loaded catalog`,
+                            });
+                        }
+                    }
+                }
+                walk(d.children, [...path, token]);
+            }
+        };
+        walk(this.roots.map((r) => r.def), []);
+    }
+
     async parse(argvInput: string[] = process.argv): Promise<number> {
         this.validateInteractiveSpecs();
         const argv0 = normalizeArgv(argvInput);
@@ -641,10 +711,12 @@ class CliBuilder implements Cli {
             throw CliError.configError('commander::config::localize_required');
         }
         const t = localize.t.bind(localize);
+        this.validateInteractivePromptKeys(t);
         const diagnosticContext: DiagnosticContext = {
             locale: localize.resolveLocale?.({ argv: argv0, env: run.env }) ?? 'en-US',
             t,
         };
+        const envelopeState = { written: false };
 
         // `help <cmd> ...` routing: treat tokens after help as the command path
         if (argv.length && argv[0] === 'help') {
@@ -675,7 +747,7 @@ class CliBuilder implements Cli {
             return 2;
         }
 
-        return await this.dispatch(matched.def, argv.slice(1), t, [cmdToken], globalOpts, diagnosticContext, run);
+        return await this.dispatch(matched.def, argv.slice(1), t, [cmdToken], globalOpts, diagnosticContext, run, envelopeState);
     }
 
     /** Route `help <cmd> [subcmd] ...` to that command's help text. */
@@ -771,6 +843,7 @@ class CliBuilder implements Cli {
         globalOpts: ParsedOptions,
         diagnosticContext: DiagnosticContext,
         run: RunEnv,
+        envelopeState: { written: boolean },
     ): Promise<number> {
         // `--` ends option parsing. Keep head (options + command tokens) separate
         // from tail (raw positionals) before help scanning or option parsing.
@@ -864,7 +937,7 @@ class CliBuilder implements Cli {
         try {
             let result: void | number;
             if (target.actionCtx) {
-                const ctx = this.buildCommandContext(target, targetPath, diagnosticContext.locale, t, run);
+                const ctx = this.buildCommandContext(target, targetPath, diagnosticContext.locale, t, run, envelopeState);
                 result = await target.actionCtx(options, options._, ctx);
             } else if (target.action) {
                 result = await target.action(options, ...options._);
@@ -877,6 +950,10 @@ class CliBuilder implements Cli {
         } catch (err) {
             const diagnostic = normalizeDiagnostic(err);
             this.emitDiagnostic(diagnostic, diagnosticContext, t);
+            // JSON mode: the thrown error becomes the single stdout envelope.
+            if (run.mode === 'json') {
+                this.writeEnvelope(failureEnvelope(err, t), envelopeState);
+            }
             // CliError.exitCode is POSIX-correct (2 for parse/validation, 1 for config/action)
             if (err instanceof CliError) return err.exitCode;
             return 1;
@@ -902,7 +979,7 @@ class CliBuilder implements Cli {
     }
 
     /** Build a CommandContext for .actionCtx() handlers. */
-    private buildCommandContext(def: CommandDef, path: string[], locale: string, t: LocalizePlugin['t'], run: RunEnv): CommandContext {
+    private buildCommandContext(def: CommandDef, path: string[], locale: string, t: LocalizePlugin['t'], run: RunEnv, envelopeState: { written: boolean }): CommandContext {
         const self = this;
         const name = path.join(' ');
         const state = { stdinClaimed: false };
@@ -942,8 +1019,24 @@ class CliBuilder implements Cli {
             isInteractive: () => run.interactive,
             claimStdin: () => { state.stdinClaimed = true; },
             get stdinClaimed() { return state.stdinClaimed; },
-            emitResult: (data) => { console.log(JSON.stringify(data, null, 2)); },
-            emitFailure: (error) => { console.error(`${error.code}: ${error.message}`); },
+            // Envelope owner: JSON mode writes the `wae.cli-result/v0` object to
+            // stdout exactly once; human mode keeps the plain text behavior.
+            emitResult: (data, human) => {
+                if (run.mode === 'json') {
+                    this.writeEnvelope({ schema: CLI_RESULT_SCHEMA, ok: true, data }, envelopeState);
+                } else {
+                    this.writeOut(human ?? JSON.stringify(data, null, 2));
+                }
+            },
+            emitFailure: (error, descriptor) => {
+                if (run.mode === 'json') {
+                    const envelope: Record<string, unknown> = { schema: CLI_RESULT_SCHEMA, ok: false, error: { code: error.code, message: error.message } };
+                    if (descriptor !== undefined) envelope.actionRequired = cleanActionRequired(descriptor);
+                    this.writeEnvelope(envelope, envelopeState);
+                } else {
+                    this.writeErr(`${error.code}: ${error.message}`);
+                }
+            },
             actionRequired: (descriptor) => { throw CliError.actionRequired(descriptor); },
         };
     }
