@@ -44,8 +44,24 @@ export {
 } from './locales.js';
 export type { CreateLocalizeFromLocalesOptions, LocalesManifest } from './locales.js';
 
-import type { CatalogLoader, CommandContext, CommandDiagnostic, DiagnosticContext, DiagnosticHandler, LocaleCatalog, LocalizePlugin, OptionConfig } from './types.js';
-import { CliError } from './types.js';
+import type {
+    ActionRequiredDescriptor,
+    CatalogLoader,
+    CommandContext,
+    CommandDiagnostic,
+    ConfirmRequest,
+    DiagnosticContext,
+    DiagnosticHandler,
+    InputRequest,
+    InteractiveSpec,
+    LocaleCatalog,
+    LocalizePlugin,
+    OptionConfig,
+    PasswordRequest,
+    PromptApi,
+    SelectRequest,
+} from './types.js';
+import { CliError, SecretInput } from './types.js';
 import { COMMANDER_FALLBACK_EN_US, createLocalizeFromLocales, translate, translateWithFallback } from './locales.js';
 
 type Color = 'bold' | 'dim' | 'cyan' | 'blue' | 'green' | 'yellow' | 'red';
@@ -251,6 +267,41 @@ function probeTtyPair(): boolean {
     return Boolean(process.stdin.isTTY && process.stderr.isTTY);
 }
 
+/**
+ * Validate one interactive declaration against the owning command's option table.
+ * Every input reference must resolve to an option key, `flag:<option-key>` or
+ * `config:<name>`; every prompt key must be a non-empty id; `required` policy
+ * must carry at least one prompt key.
+ */
+function validateInteractiveSpec(spec: InteractiveSpec, where: string, optionKeys: Set<string>): void {
+    const bad = (detail: string): never => {
+        throw CliError.configError('commander::interactive_spec_invalid', { command: where, detail });
+    };
+    if (!spec || typeof spec !== 'object') bad('spec must be an object');
+    if (spec.policy !== 'optional' && spec.policy !== 'required' && spec.policy !== 'never') {
+        bad(`unknown policy \`${String(spec.policy)}\``);
+    }
+    const promptKeys = spec.promptKeys ?? {};
+    for (const [slot, key] of Object.entries(promptKeys)) {
+        if (typeof key !== 'string' || key.length === 0) bad(`prompt key for slot \`${slot}\` must be a non-empty id`);
+    }
+    if (spec.policy === 'required' && Object.keys(promptKeys).length === 0) {
+        bad('policy `required` needs at least one prompt key');
+    }
+    const refs = [...(spec.nonInteractiveInputs ?? []), ...(spec.continuation?.resumeInputs ?? [])];
+    for (const entry of refs) {
+        if (typeof entry !== 'string' || entry.length === 0) bad('input reference must be a non-empty string');
+        if (entry.startsWith('flag:')) {
+            const name = entry.slice('flag:'.length);
+            if (!name || !optionKeys.has(name)) bad(`unknown flag reference \`${entry}\``);
+        } else if (entry.startsWith('config:')) {
+            if (!entry.slice('config:'.length)) bad('empty config reference');
+        } else if (!optionKeys.has(entry)) {
+            bad(`unknown input reference \`${entry}\``);
+        }
+    }
+}
+
 /** Command action after argv is parsed (legacy API — no context). */
 export type ActionHandler = (options: ParsedOptions, ...args: string[]) => void | number | Promise<void | number>;
 
@@ -290,10 +341,14 @@ export type CommandDef = {
     children: CommandDef[];
     /** If true, do not parse options; remaining argv is positionals / raw rest. */
     passthrough: boolean;
+    /** Interactive declaration (validated when the tree is complete, before dispatch). */
+    interactive?: InteractiveSpec;
 };
 
 export interface Command {
     option(rawName: string, helpId: string, config?: OptionConfig): this;
+    /** Declare this command's interactive contract (validated at build time). */
+    interactive(spec: InteractiveSpec): this;
     /** Legacy API — handler receives `(options, ...args)` without ctx. */
     action(handler: ActionHandler): this;
     /** Phase 3 API — handler receives `(options, args[], ctx)` with full command context. */
@@ -372,6 +427,11 @@ class CommandBuilder implements Command {
         const def = parseOptionDef(rawName, helpId);
         if (config) def.config = config;
         this.def.options.push(def);
+        return this;
+    }
+
+    interactive(spec: InteractiveSpec): this {
+        this.def.interactive = spec;
         return this;
     }
 
@@ -539,7 +599,29 @@ class CliBuilder implements Cli {
         return [...new Set(ids)];
     }
 
+    /**
+     * Build-time validation of every interactive declaration in the tree
+     * (command level and option level). Runs before dispatch so a broken
+     * machine path fails as a config error instead of hanging on a prompt.
+     */
+    private validateInteractiveSpecs(): void {
+        const walk = (defs: CommandDef[], path: string[]): void => {
+            for (const d of defs) {
+                const token = d.names[0] ?? '?';
+                const here = [...path, token].join(' ');
+                const keys = new Set(d.options.map((o) => o.key));
+                if (d.interactive) validateInteractiveSpec(d.interactive, here, keys);
+                for (const o of d.options) {
+                    if (o.config?.interactive) validateInteractiveSpec(o.config.interactive, `${here} ${o.rawName}`, keys);
+                }
+                walk(d.children, [...path, token]);
+            }
+        };
+        walk(this.roots.map((r) => r.def), []);
+    }
+
     async parse(argvInput: string[] = process.argv): Promise<number> {
+        this.validateInteractiveSpecs();
         const argv0 = normalizeArgv(argvInput);
         const peeled = peelKnownOptions(argv0, this.rootOptions);
         const globalOpts = peeled.options;
