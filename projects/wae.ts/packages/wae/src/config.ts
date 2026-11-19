@@ -738,7 +738,7 @@ function validateBuild(value: unknown, where: string): WaeBuildConfig {
         const types = expectObject(obj.types, `${where}.types`);
         assertKeys(types, ['package', 'out'], `${where}.types`);
         const out = types.out === undefined ? undefined : expectString(types.out, `${where}.types.out`);
-        if (out !== undefined && (path.isAbsolute(out) || out.split(/[\\/]/).includes('..'))) {
+        if (out !== undefined && (path.isAbsolute(out) || /^[A-Za-z]:/.test(out) || out.startsWith('\\') || out.split(/[\\/]/).includes('..'))) {
             invalid(`${where}.types.out`, 'must be a relative path inside the package');
         }
         build.types = {
