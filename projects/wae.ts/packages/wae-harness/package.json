@@ -1,6 +1,6 @@
 {
     "name": "@wae/wae-harness",
-    "version": "0.0.6",
+    "version": "0.0.7",
     "type": "module",
     "description": "WAE automation harness: in-process WebView driver over the shared platform addon",
     "license": "Apache-2.0",
@@ -44,9 +44,9 @@
         "@wae/commander": "workspace:*"
     },
     "optionalDependencies": {
-        "@wae/wae-darwin-arm64": "0.0.6",
-        "@wae/wae-linux-x64": "0.0.6",
-        "@wae/wae-win32-x64": "0.0.6"
+        "@wae/wae-darwin-arm64": "0.0.7",
+        "@wae/wae-linux-x64": "0.0.7",
+        "@wae/wae-win32-x64": "0.0.7"
     },
     "devDependencies": {
         "@types/node": "^22.15.0",
