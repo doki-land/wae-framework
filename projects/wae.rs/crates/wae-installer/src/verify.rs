@@ -120,6 +120,7 @@ pub(crate) fn msi_api_query(path: &Path, query: &str) -> std::result::Result<Vec
 
 /// 非 Windows 占位（保持编译面一致）。
 #[cfg(not(windows))]
+#[allow(dead_code)] // 调用点均为 Windows 门，非 Windows 构建下仅剩占位定义。
 pub(crate) fn msi_api_query(_path: &Path, _query: &str) -> std::result::Result<Vec<Vec<String>>, String> {
     Err("msi.dll is Windows-only".into())
 }
@@ -144,6 +145,7 @@ pub(crate) fn ole32_storage_open(path: &Path) -> std::result::Result<(), u32> {
 }
 
 #[cfg(not(windows))]
+#[allow(dead_code)] // 调用点均为 Windows 门，非 Windows 构建下仅剩占位定义。
 pub(crate) fn ole32_storage_open(_path: &Path) -> std::result::Result<(), u32> {
     Err(0xFFFF)
 }

@@ -456,8 +456,8 @@ mod tests {
                 _ => panic!("_Tables row not text"),
             })
             .collect();
-        assert!(tables.contains(&"Property".to_string()));
-        assert!(tables.contains(&"InstallExecuteSequence".to_string()));
+        assert!(tables.iter().any(|table| table == "Property"));
+        assert!(tables.iter().any(|table| table == "InstallExecuteSequence"));
         let property = decode_rows(&streams["Property"], pool);
         let names: Vec<String> = property
             .iter()
@@ -466,8 +466,8 @@ mod tests {
                 _ => panic!(),
             })
             .collect();
-        assert!(names.contains(&"ProductName".to_string()));
-        assert!(names.contains(&"ProductCode".to_string()));
+        assert!(names.iter().any(|name| name == "ProductName"));
+        assert!(names.iter().any(|name| name == "ProductCode"));
         let files = decode_rows(&streams["File"], pool);
         assert_eq!(files.len(), 2);
         let _ = std::fs::remove_dir_all(spec.output.parent().unwrap());
@@ -483,7 +483,7 @@ mod tests {
         let spec = build_spec("msidll");
         write_msi(&spec, &MsiOptions { major_upgrade: true, ..MsiOptions::default() }).unwrap();
         let report = crate::verify::verify_msi(&spec.output).expect("msi.dll must open and query every table");
-        assert!(report.tables.contains(&"Property".to_string()));
+        assert!(report.tables.iter().any(|table| table == "Property"));
         assert!(report.rows.iter().any(|(name, count)| name == "File" && *count == 2));
         let _ = std::fs::remove_dir_all(spec.output.parent().unwrap());
     }
