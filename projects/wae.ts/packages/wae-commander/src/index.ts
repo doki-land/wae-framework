@@ -6,8 +6,30 @@
  * `commander.*` with tiny English fallbacks — no product language packs here.
  */
 
-export type { CatalogLoader, CommandContext, CommandDiagnostic, DiagnosticContext, DiagnosticHandler, LocaleCatalog, LocalizePlugin, OptionConfig } from './types.js';
-export { CliError } from './types.js';
+export type {
+    ActionRequiredDescriptor,
+    AwaitActionOutcome,
+    AwaitActionRequest,
+    CatalogLoader,
+    CommandContext,
+    CommandDiagnostic,
+    ConfirmRequest,
+    DiagnosticContext,
+    DiagnosticHandler,
+    ExitCode,
+    InputRequest,
+    InputValidationError,
+    InteractivePolicy,
+    InteractiveSpec,
+    LocaleCatalog,
+    LocalizePlugin,
+    OptionConfig,
+    PasswordRequest,
+    PromptApi,
+    SelectChoice,
+    SelectRequest,
+} from './types.js';
+export { CliError, EXIT, SecretInput } from './types.js';
 
 export {
     COMMANDER_FALLBACK_EN_US,
@@ -704,6 +726,8 @@ class CliBuilder implements Cli {
     private buildCommandContext(def: CommandDef, path: string[], locale: string, t: LocalizePlugin['t']): CommandContext {
         const self = this;
         const name = path.join(' ');
+        const state = { stdinClaimed: false };
+        const unavailable = () => CliError.capabilityError('commander::interactive_unavailable');
         return {
             commandPath: [this.name, ...path],
             commandName: name,
@@ -734,6 +758,21 @@ class CliBuilder implements Cli {
                     t,
                 );
             },
+            // Wiring placeholders — the real engines land with the eligibility,
+            // prompt and envelope blocks. The type surface is frozen now.
+            prompt: {
+                confirm: async () => { throw unavailable(); },
+                input: async () => { throw unavailable(); },
+                select: async () => { throw unavailable(); },
+                password: async () => { throw unavailable(); },
+                awaitAction: async () => { throw unavailable(); },
+            },
+            isInteractive: () => false,
+            claimStdin: () => { state.stdinClaimed = true; },
+            get stdinClaimed() { return state.stdinClaimed; },
+            emitResult: (data) => { console.log(JSON.stringify(data, null, 2)); },
+            emitFailure: (error) => { console.error(`${error.code}: ${error.message}`); },
+            actionRequired: (descriptor) => { throw CliError.actionRequired(descriptor); },
         };
     }
 }
