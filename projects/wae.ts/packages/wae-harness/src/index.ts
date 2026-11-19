@@ -97,3 +97,4 @@ export { HarnessNativeError, loadHarnessNative, platformPackageName, sharedPlatf
 export type { HarnessNative } from './native.js';
 export { allocatePort, loadOps, runHarness, WaeHarnessError } from './driver.js';
 export type { HarnessOp, HarnessRunOptions } from './driver.js';
+export * from './conformance.js';
