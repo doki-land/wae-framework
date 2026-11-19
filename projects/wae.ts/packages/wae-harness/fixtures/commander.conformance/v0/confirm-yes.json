@@ -1,0 +1,1 @@
+{"schema":"commander.conformance/v0","id":"confirm-yes","mode":"inproc","tty":true,"argv":["confirm"],"stdin":["y\n"],"expect":{"exitCode":0,"stdoutContains":["confirmed=true"],"stderrContains":["Proceed?"]}}

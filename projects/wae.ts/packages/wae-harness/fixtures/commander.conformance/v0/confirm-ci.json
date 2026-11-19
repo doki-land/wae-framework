@@ -1,0 +1,1 @@
+{"schema":"commander.conformance/v0","id":"confirm-ci","mode":"inproc","tty":true,"argv":["confirm","--json"],"stdin":["y\n"],"env":{"CI":"true"},"expect":{"exitCode":3,"envelope":{"ok":false,"error":{"code":"commander::interactive_unavailable"}}}}

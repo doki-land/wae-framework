@@ -1,0 +1,1 @@
+{"schema":"commander.conformance/v0","id":"confirm-invalid-retry","mode":"inproc","tty":true,"argv":["confirm"],"stdin":["maybe\n","y\n"],"expect":{"exitCode":0,"stdoutContains":["confirmed=true"]}}

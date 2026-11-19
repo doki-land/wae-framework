@@ -1,0 +1,1 @@
+{"schema":"commander.conformance/v0","id":"confirm-decline","mode":"inproc","tty":true,"argv":["confirm"],"stdin":["n\n"],"expect":{"exitCode":0,"stdoutContains":["confirmed=false"]}}

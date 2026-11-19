@@ -1,0 +1,1 @@
+{"schema":"commander.conformance/v0","id":"await-confirmed","mode":"inproc","tty":true,"argv":["await-action"],"stdin":["\n"],"expect":{"exitCode":0,"stdoutContains":["resumed=conf-dns01-1"]}}

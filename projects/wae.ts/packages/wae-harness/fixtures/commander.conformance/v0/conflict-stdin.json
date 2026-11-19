@@ -1,0 +1,1 @@
+{"schema":"commander.conformance/v0","id":"conflict-stdin","mode":"inproc","tty":true,"argv":["conflict"],"stdin":["y\n"],"expect":{"exitCode":3,"stderrContains":["interactive prompting is unavailable"]}}

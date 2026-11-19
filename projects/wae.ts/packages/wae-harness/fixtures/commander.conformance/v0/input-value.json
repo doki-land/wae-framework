@@ -1,0 +1,1 @@
+{"schema":"commander.conformance/v0","id":"input-value","mode":"inproc","tty":true,"argv":["input"],"stdin":["hello\n"],"expect":{"exitCode":0,"stdoutContains":["hello"]}}

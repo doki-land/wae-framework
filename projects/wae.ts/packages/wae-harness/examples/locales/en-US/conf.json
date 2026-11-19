@@ -1,0 +1,36 @@
+{
+    "conf": {
+        "intro": "conformance fixture CLI",
+        "cmd": {
+            "confirm": "ask a yes/no question",
+            "input": "ask for a line of text",
+            "select": "pick one of three choices",
+            "password": "collect a secret without echo",
+            "await-action": "prepare or resume a persisted external action",
+            "conflict": "claim stdin then try to prompt",
+            "boom": "throw an arbitrary error"
+        },
+        "opt": {
+            "value": "machine-path value (skips the prompt)",
+            "default": "confirm default for an empty line (yes or no)",
+            "deadline": "absolute prompt deadline in milliseconds",
+            "secret-from-env": "read the secret from this environment variable instead of prompting",
+            "action": "stable action id to resume"
+        },
+        "prompt": {
+            "confirm": "Proceed?",
+            "input": "Enter a name",
+            "select": "Pick a channel",
+            "password": "Enter the secret",
+            "await": "Place these records, then confirm:\n{records}"
+        },
+        "choice": {
+            "alpha": "alpha",
+            "beta": "beta",
+            "gamma": "gamma"
+        },
+        "err": {
+            "empty": "the value must not be empty"
+        }
+    }
+}

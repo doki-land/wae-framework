@@ -1,0 +1,1 @@
+{"schema":"commander.conformance/v0","id":"boom-masks-message","mode":"inproc","tty":true,"argv":["boom","--json"],"stdin":[],"expect":{"exitCode":1,"envelope":{"ok":false,"error":{"code":"commander::action_failed"}},"stdoutNotContains":["arbitrary failure message"]}}

@@ -1,0 +1,1 @@
+{"schema":"commander.conformance/v0","id":"usage-unknown-option","mode":"pipe","argv":["confirm","--bogus","--json"],"stdin":[],"expect":{"exitCode":2,"stdoutSingleJson":true,"envelope":{"ok":false,"error":{"code":"commander::unknown_option"}}}}

@@ -1,0 +1,1 @@
+{"schema":"commander.conformance/v0","id":"human-mode-no-envelope","mode":"inproc","tty":true,"argv":["confirm"],"stdin":["y\n"],"expect":{"exitCode":0,"stdoutContains":["confirmed=true"],"stdoutNotContains":["wae.cli-result/v0"]}}

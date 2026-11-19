@@ -1,0 +1,1 @@
+{"schema":"commander.conformance/v0","id":"await-deferred-pipe","mode":"pipe","argv":["await-action","--json"],"stdin":[],"expect":{"exitCode":5,"envelope":{"ok":false,"error":{"code":"commander::action_required"},"actionRequired":{"actionId":"conf-dns01-1"}}}}

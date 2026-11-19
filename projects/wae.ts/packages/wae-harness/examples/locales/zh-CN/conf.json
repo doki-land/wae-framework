@@ -1,0 +1,36 @@
+{
+    "conf": {
+        "intro": "符合性夹具 CLI",
+        "cmd": {
+            "confirm": "询问一个是/否问题",
+            "input": "请求一行文本",
+            "select": "从三个选项中选择一个",
+            "password": "无回显收集秘密",
+            "await-action": "准备或续跑已落盘的外部动作",
+            "conflict": "占用 stdin 后尝试提示",
+            "boom": "抛出任意错误"
+        },
+        "opt": {
+            "value": "机器路径值（跳过提示）",
+            "default": "空回车时的确认默认值（yes 或 no）",
+            "deadline": "提示的绝对期限（毫秒）",
+            "secret-from-env": "从该环境变量读取秘密而不提示",
+            "action": "要续跑的稳定动作 id"
+        },
+        "prompt": {
+            "confirm": "是否继续？",
+            "input": "请输入名称",
+            "select": "请选择通道",
+            "password": "请输入秘密",
+            "await": "请放置以下记录后确认：\n{records}"
+        },
+        "choice": {
+            "alpha": "alpha",
+            "beta": "beta",
+            "gamma": "gamma"
+        },
+        "err": {
+            "empty": "值不能为空"
+        }
+    }
+}

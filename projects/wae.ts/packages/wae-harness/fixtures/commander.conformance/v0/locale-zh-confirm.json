@@ -1,0 +1,1 @@
+{"schema":"commander.conformance/v0","id":"locale-zh-confirm","mode":"inproc","tty":true,"argv":["confirm","--locale","zh-CN"],"stdin":["y\n"],"expect":{"exitCode":0,"stderrContains":["是否继续"]}}

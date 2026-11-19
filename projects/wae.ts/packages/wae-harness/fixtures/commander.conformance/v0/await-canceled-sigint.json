@@ -1,0 +1,1 @@
+{"schema":"commander.conformance/v0","id":"await-canceled-sigint","mode":"inproc","tty":true,"argv":["await-action"],"stdin":[],"holdStdin":true,"sigint":true,"expect":{"exitCode":4,"stderrContains":["prompt canceled"]}}

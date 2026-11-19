@@ -1,0 +1,1 @@
+{"schema":"commander.conformance/v0","id":"confirm-eof","mode":"inproc","tty":true,"argv":["confirm"],"stdin":[],"expect":{"exitCode":4,"stderrContains":["prompt canceled"]}}

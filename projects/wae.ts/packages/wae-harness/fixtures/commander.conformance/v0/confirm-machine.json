@@ -1,0 +1,1 @@
+{"schema":"commander.conformance/v0","id":"confirm-machine","mode":"inproc","tty":true,"argv":["confirm","--value","yes","--json"],"stdin":[],"expect":{"exitCode":0,"envelope":{"ok":true,"data":{"confirmed":true,"source":"machine"}}}}

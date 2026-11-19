@@ -1,0 +1,1 @@
+{"schema":"commander.conformance/v0","id":"confirm-timeout","mode":"inproc","tty":true,"argv":["confirm","--deadline","150"],"stdin":[],"holdStdin":true,"expect":{"exitCode":4,"stderrContains":["prompt timed out"]}}

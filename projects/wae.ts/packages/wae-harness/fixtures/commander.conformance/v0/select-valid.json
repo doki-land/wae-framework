@@ -1,0 +1,1 @@
+{"schema":"commander.conformance/v0","id":"select-valid","mode":"inproc","tty":true,"argv":["select"],"stdin":["2\n"],"expect":{"exitCode":0,"stdoutContains":["beta"]}}

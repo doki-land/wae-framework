@@ -1,0 +1,1 @@
+{"schema":"commander.conformance/v0","id":"select-invalid-retry","mode":"inproc","tty":true,"argv":["select"],"stdin":["99\n","1\n"],"expect":{"exitCode":0,"stdoutContains":["alpha"]}}

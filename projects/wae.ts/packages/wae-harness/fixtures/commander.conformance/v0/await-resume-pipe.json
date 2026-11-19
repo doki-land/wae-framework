@@ -1,0 +1,1 @@
+{"schema":"commander.conformance/v0","id":"await-resume-pipe","mode":"pipe","argv":["await-action","--action","conf-dns01-1","--json"],"stdin":[],"expect":{"exitCode":0,"envelope":{"ok":true,"data":{"resumed":"conf-dns01-1"}}}}
