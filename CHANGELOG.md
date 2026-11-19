@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.0.7
+
+- 元 CLI 与交互：`@wae/wae` 元 CLI 与 `@wae/commander` 接入 `wae.cli-result/v0` 信封与 `EXIT` 合同；`ctx.prompt` 引擎、双宿主交互合同、`envelope-purity` 一致性 fixture；脚手架模板同步切到信封与 `EXIT`。
+- 原生桥：类型化签名与对象结构、结构化错误、Node 线程池异步导出、类导出与 `wae build` 生成原生 TS 表面。
+- 窗口：无边框窗口、最小化/最大化、焦点修正、`app.ico` 加载失败报告。
+- 安装器：`wae-installer` crate（CFB v3/v4、MS-CAB、MSI writer）。
+- Harness：`wae-harness` crate、`wae harness` CLI、WebView 自动化能力与 `@wae/wae-harness` 拆分。
+- 原生目标：接受 Rust triple 作为 native 选择器，CI 矩阵无需第二张映射表。
+- WebView 内部化：删除 webview crate，消费 `boost-binding.webview*`。
+- 审计轮转上限 `WAE_AUDIT_MAX_FILES`。
+- 修复：`types.out` 跨平台拒绝 drive-style 路径；Win11 下无边框窗口使用 `WS_POPUP`。
+
+### 从 0.0.6 升级
+
+把工程根 `devDependencies` 的 `@wae/wae` 与子包 `dependencies` 的 `@wae/commander` 一起改为 `0.0.7`，执行 `pnpm install` 后重新构建。消费 `wae.cli-result/v0` 信封的工程按 `EXIT` 合同对齐失败路径。
+
 ## 0.0.6
 
 - `wae.config.ts` 支持显式窗口策略 `window.mode`（`single` / `independent` / `primary-secondary`）与 `secondLaunch`，`wae build` 在宿主不支持的模式上以 `window_mode_unsupported` 失败，不再静默降级。`wae new` 生成的工程默认声明 `single` + `focus`。
