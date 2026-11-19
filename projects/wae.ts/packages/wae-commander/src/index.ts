@@ -204,6 +204,53 @@ function renderOptionSections(t: LocalizePlugin['t'], options: OptionDef[], colo
 /** Options bag passed to actions (`_` = positionals). */
 export type ParsedOptions = Record<string, string | boolean | string[]> & { _: string[] };
 
+/**
+ * Injectable stdin stream. A real `process.stdin` TTY carries `isTTY` and
+ * `setRawMode`; test fakes implement `setRawMode` to exercise the password path.
+ */
+export type PromptStream = NodeJS.ReadableStream & {
+    isTTY?: boolean;
+    setRawMode?: (mode: boolean) => unknown;
+};
+
+/**
+ * Process-IO seams for `createCli`. Tests and embedding hosts inject streams
+ * instead of touching the real console; omitting everything keeps Node defaults.
+ */
+export type CreateCliOptions = {
+    stdin?: PromptStream;
+    stdout?: (text: string) => void;
+    stderr?: (text: string) => void;
+    /** Overrides the stdin+stderr TTY probe used for interactive eligibility. */
+    isTty?: boolean;
+    /** Env source for CI detection (default `process.env`). */
+    env?: NodeJS.ProcessEnv;
+};
+
+/** Final stdout contract: human text or the single JSON envelope. */
+export type OutputMode = 'human' | 'json';
+
+/** Per-parse routing/eligibility snapshot. */
+type RunEnv = { mode: OutputMode; interactive: boolean; env: NodeJS.ProcessEnv };
+
+/**
+ * CI rule (frozen): `CI` unset → false, `''` / `'false'` / `'0'` → false,
+ * any other value → true. No other `CI_*` marker is matched.
+ */
+function ciFromEnv(env: NodeJS.ProcessEnv): boolean {
+    const v = env.CI;
+    if (v === undefined) return false;
+    if (v === '' || v === 'false' || v === '0') return false;
+    return true;
+}
+
+/** Interactive prompts write to stderr, so probe stdin(0) + stderr(2) only. */
+function probeTtyPair(): boolean {
+    const tty = tryImportTty();
+    if (tty) return tty.isatty(0) && tty.isatty(2);
+    return Boolean(process.stdin.isTTY && process.stderr.isTTY);
+}
+
 /** Command action after argv is parsed (legacy API — no context). */
 export type ActionHandler = (options: ParsedOptions, ...args: string[]) => void | number | Promise<void | number>;
 
@@ -354,6 +401,7 @@ class CommandBuilder implements Command {
 
 class CliBuilder implements Cli {
     readonly name: string;
+    readonly runtime: CreateCliOptions;
     private localize: LocalizePlugin | null = null;
     /** When set, `parse` rebuilds localize from this root (argv/env/`--locale`). */
     private localesRoot: string | null = null;
@@ -363,8 +411,43 @@ class CliBuilder implements Cli {
     private readonly roots: CommandBuilder[] = [];
     private readonly rootOptions: OptionDef[] = [];
 
-    constructor(name: string) {
+    constructor(name: string, runtime: CreateCliOptions = {}) {
         this.name = name;
+        this.runtime = runtime;
+        // Framework globals — parseable everywhere, hidden from product help.
+        const json = parseOptionDef('--json', 'commander.opt.json');
+        json.config = { hidden: true };
+        const noInteractive = parseOptionDef('--no-interactive', 'commander.opt.no_interactive');
+        noInteractive.config = { hidden: true };
+        this.rootOptions.push(json, noInteractive);
+    }
+
+    /** Final stdout writer (envelope / human data only). */
+    private writeOut(text: string): void {
+        if (this.runtime.stdout) this.runtime.stdout(text);
+        else console.log(text);
+    }
+
+    /** Final stderr writer (diagnostics / prompts / help-in-json-mode). */
+    private writeErr(text: string): void {
+        if (this.runtime.stderr) this.runtime.stderr(text);
+        else console.error(text);
+    }
+
+    /** Help is chrome: stderr in JSON mode (stdout stays envelope-only). */
+    private printHelp(text: string, run: RunEnv): void {
+        if (run.mode === 'json') this.writeErr(text);
+        else this.writeOut(text);
+    }
+
+    /** Output mode + interactive eligibility for one parse run. */
+    private computeRun(globalOpts: ParsedOptions): RunEnv {
+        const json = globalOpts.json === true;
+        const noInteractive = globalOpts['no-interactive'] === true;
+        const env = this.runtime.env ?? process.env;
+        const tty = this.runtime.isTty ?? probeTtyPair();
+        const interactive = Boolean(tty) && !json && !ciFromEnv(env) && !noInteractive;
+        return { mode: json ? 'json' : 'human', interactive, env };
     }
 
     use(plugin: LocalizePlugin): this {
@@ -463,6 +546,7 @@ class CliBuilder implements Cli {
         // A leading separator at program level only marks the end of global
         // options. Keep the following command token dispatchable.
         const argv = peeled.rest[0] === '--' ? peeled.rest.slice(1) : peeled.rest;
+        const run = this.computeRun(globalOpts);
 
         let localize = this.localize;
         if (this.localesRoot) {
@@ -472,7 +556,7 @@ class CliBuilder implements Cli {
                     root: this.localesRoot,
                     locale: localeFlag,
                     argv: argv0,
-                    env: process.env,
+                    env: run.env,
                     envKeys: this.localesEnvKeys,
                 }),
             );
@@ -482,18 +566,18 @@ class CliBuilder implements Cli {
         }
         const t = localize.t.bind(localize);
         const diagnosticContext: DiagnosticContext = {
-            locale: localize.resolveLocale?.({ argv: argv0, env: process.env }) ?? 'en-US',
+            locale: localize.resolveLocale?.({ argv: argv0, env: run.env }) ?? 'en-US',
             t,
         };
 
         // `help <cmd> ...` routing: treat tokens after help as the command path
         if (argv.length && argv[0] === 'help') {
             const pathTokens = argv.slice(1);
-            return this.routeHelp(pathTokens, t, diagnosticContext);
+            return this.routeHelp(pathTokens, t, run);
         }
 
         if (argv.length === 0 || argv.every(isHelpToken)) {
-            console.log(this.formatRootHelp(t));
+            this.printHelp(this.formatRootHelp(t), run);
             return 0;
         }
 
@@ -515,13 +599,13 @@ class CliBuilder implements Cli {
             return 2;
         }
 
-        return await this.dispatch(matched.def, argv.slice(1), t, [cmdToken], globalOpts, diagnosticContext);
+        return await this.dispatch(matched.def, argv.slice(1), t, [cmdToken], globalOpts, diagnosticContext, run);
     }
 
     /** Route `help <cmd> [subcmd] ...` to that command's help text. */
-    private routeHelp(pathTokens: string[], t: LocalizePlugin['t'], _ctx: DiagnosticContext): number {
+    private routeHelp(pathTokens: string[], t: LocalizePlugin['t'], run: RunEnv): number {
         if (!pathTokens.length) {
-            console.log(this.formatRootHelp(t));
+            this.printHelp(this.formatRootHelp(t), run);
             return 0;
         }
         let pool: CommandDef[] | undefined = this.roots.map((r) => r.def);
@@ -536,11 +620,11 @@ class CliBuilder implements Cli {
         }
         if (!matched) {
             // No valid command in the path → still show root help
-            console.log(this.formatRootHelp(t));
+            this.printHelp(this.formatRootHelp(t), run);
             return 0;
         }
         const path = pathTokens.slice(0, consumed);
-        console.log(formatCommandHelp(this.name, matched, t, path, this.rootOptions));
+        this.printHelp(formatCommandHelp(this.name, matched, t, path, this.rootOptions), run);
         return 0;
     }
 
@@ -559,7 +643,7 @@ class CliBuilder implements Cli {
             const fromCatalog = code ? localizedOrId(t, code, diag.args) : '';
             const businessMessage = diag.message && diag.message !== code ? diag.message : '';
             const msg = fromCatalog || businessMessage || code || String(diag);
-            console.error(errorText(msg));
+            this.writeErr(errorText(msg));
         }
         // Hints and suggestions are framework UI; always append even with a handler
         if (diag.code && HINT_CODES.has(diag.code)) {
@@ -569,11 +653,11 @@ class CliBuilder implements Cli {
             const hintTarget = diag.code === 'commander::unknown_command' || !cmd
                 ? this.name
                 : `${this.name} ${cmd}`;
-            console.error(paint(t('commander.ui.hint.available_options', { command: hintTarget }), 'dim'));
+            this.writeErr(paint(t('commander.ui.hint.available_options', { command: hintTarget }), 'dim'));
         }
         const suggest = typeof diag.args?.suggest === 'string' ? diag.args.suggest : '';
         if (suggest) {
-            console.error(paint(t('commander.ui.hint.did_you_mean', { suggest }), 'dim'));
+            this.writeErr(paint(t('commander.ui.hint.did_you_mean', { suggest }), 'dim'));
         }
     }
 
@@ -610,6 +694,7 @@ class CliBuilder implements Cli {
         path: string[],
         globalOpts: ParsedOptions,
         diagnosticContext: DiagnosticContext,
+        run: RunEnv,
     ): Promise<number> {
         // `--` ends option parsing. Keep head (options + command tokens) separate
         // from tail (raw positionals) before help scanning or option parsing.
@@ -634,7 +719,7 @@ class CliBuilder implements Cli {
 
         // Scan --help / -h (only head after the command path; tail after `--` is ignored)
         if (hasHelpToken(remaining)) {
-            console.log(formatCommandHelp(this.name, target, t, targetPath, this.rootOptions));
+            this.printHelp(formatCommandHelp(this.name, target, t, targetPath, this.rootOptions), run);
             return 0;
         }
 
@@ -657,7 +742,7 @@ class CliBuilder implements Cli {
                 );
                 return 2;
             }
-            console.log(formatCommandHelp(this.name, target, t, targetPath, this.rootOptions));
+            this.printHelp(formatCommandHelp(this.name, target, t, targetPath, this.rootOptions), run);
             return 0;
         }
 
@@ -703,12 +788,12 @@ class CliBuilder implements Cli {
         try {
             let result: void | number;
             if (target.actionCtx) {
-                const ctx = this.buildCommandContext(target, targetPath, diagnosticContext.locale, t);
+                const ctx = this.buildCommandContext(target, targetPath, diagnosticContext.locale, t, run);
                 result = await target.actionCtx(options, options._, ctx);
             } else if (target.action) {
                 result = await target.action(options, ...options._);
             } else {
-                console.log(formatCommandHelp(this.name, target, t, targetPath, this.rootOptions));
+                this.printHelp(formatCommandHelp(this.name, target, t, targetPath, this.rootOptions), run);
                 return 0;
             }
             if (typeof result === 'number') return result;
@@ -723,7 +808,7 @@ class CliBuilder implements Cli {
     }
 
     /** Build a CommandContext for .actionCtx() handlers. */
-    private buildCommandContext(def: CommandDef, path: string[], locale: string, t: LocalizePlugin['t']): CommandContext {
+    private buildCommandContext(def: CommandDef, path: string[], locale: string, t: LocalizePlugin['t'], run: RunEnv): CommandContext {
         const self = this;
         const name = path.join(' ');
         const state = { stdinClaimed: false };
@@ -733,9 +818,9 @@ class CliBuilder implements Cli {
             commandName: name,
             locale,
             t,
-            help: () => console.log(formatCommandHelp(this.name, def, t, path, this.rootOptions)),
-            stderr: (...msgs) => { for (const m of msgs) console.error(m); },
-            stdout: (...msgs) => { for (const m of msgs) console.log(m); },
+            help: () => this.printHelp(formatCommandHelp(this.name, def, t, path, this.rootOptions), run),
+            stderr: (...msgs) => { for (const m of msgs) this.writeErr(m); },
+            stdout: (...msgs) => { for (const m of msgs) this.writeOut(m); },
             fail: (code, args) => {
                 self.emitDiagnostic(
                     { code, severity: 'error', args: args ?? {}, message: args ? (args.message ?? '') : '' },
@@ -767,7 +852,7 @@ class CliBuilder implements Cli {
                 password: async () => { throw unavailable(); },
                 awaitAction: async () => { throw unavailable(); },
             },
-            isInteractive: () => false,
+            isInteractive: () => run.interactive,
             claimStdin: () => { state.stdinClaimed = true; },
             get stdinClaimed() { return state.stdinClaimed; },
             emitResult: (data) => { console.log(JSON.stringify(data, null, 2)); },
@@ -843,12 +928,14 @@ function collectRootOptions(roots: CommandDef[]): OptionDef[] {
 
 /**
  * Create a CLI named `name` (shown in usage).
+ *
+ * `opts` injects process-IO seams for tests and embedding hosts; Node defaults apply when omitted.
  */
-export function createCli(name: string): Cli {
+export function createCli(name: string, opts: CreateCliOptions = {}): Cli {
     if (!name || typeof name !== 'string') {
         throw CliError.configError('commander::config::invalid_cli_name', { detail: String(name) });
     }
-    return new CliBuilder(name);
+    return new CliBuilder(name, opts) as unknown as Cli;
 }
 
 /**

@@ -26,6 +26,8 @@ export const COMMANDER_FALLBACK_EN_US: LocaleCatalog = {
     'commander.ui.hint.available_options': "Run '{command} --help' for available options.",
     'commander.ui.hint.did_you_mean': "Did you mean '{suggest}'?",
     'commander.opt.locale': 'Locale id',
+    'commander.opt.json': 'emit a single machine-readable JSON result envelope on stdout',
+    'commander.opt.no_interactive': 'never prompt interactively (defer or fail with a capability error instead)',
     // Legacy dotted ids (product catalogs may override these).
     'commander.err.unknown_command': 'unknown command `{cmd}`',
     'commander.err.unknown_option': 'unknown option `{option}`',
