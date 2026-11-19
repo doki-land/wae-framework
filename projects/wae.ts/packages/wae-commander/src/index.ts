@@ -26,6 +26,7 @@ export type {
     OptionConfig,
     PasswordRequest,
     PromptApi,
+    PromptStream,
     SelectChoice,
     SelectRequest,
 } from './types.js';
@@ -59,9 +60,11 @@ import type {
     OptionConfig,
     PasswordRequest,
     PromptApi,
+    PromptStream,
     SelectRequest,
 } from './types.js';
-import { CliError, SecretInput } from './types.js';
+import { CliError } from './types.js';
+import { PromptEngine } from './prompt.js';
 import { COMMANDER_FALLBACK_EN_US, createLocalizeFromLocales, translate, translateWithFallback } from './locales.js';
 
 type Color = 'bold' | 'dim' | 'cyan' | 'blue' | 'green' | 'yellow' | 'red';
@@ -219,15 +222,6 @@ function renderOptionSections(t: LocalizePlugin['t'], options: OptionDef[], colo
 
 /** Options bag passed to actions (`_` = positionals). */
 export type ParsedOptions = Record<string, string | boolean | string[]> & { _: string[] };
-
-/**
- * Injectable stdin stream. A real `process.stdin` TTY carries `isTTY` and
- * `setRawMode`; test fakes implement `setRawMode` to exercise the password path.
- */
-export type PromptStream = NodeJS.ReadableStream & {
-    isTTY?: boolean;
-    setRawMode?: (mode: boolean) => unknown;
-};
 
 /**
  * Process-IO seams for `createCli`. Tests and embedding hosts inject streams
@@ -889,12 +883,29 @@ class CliBuilder implements Cli {
         }
     }
 
+    /** Prompt API for one command context (one engine, one lease). */
+    private buildPromptApi(t: LocalizePlugin['t'], run: RunEnv, state: { stdinClaimed: boolean }): PromptApi {
+        const engine = new PromptEngine({
+            stdin: this.runtime.stdin ?? process.stdin,
+            writeErr: (text) => this.writeErr(text),
+            t,
+            interactive: () => run.interactive,
+            stdinClaimed: () => state.stdinClaimed,
+        });
+        return {
+            confirm: (req: ConfirmRequest) => engine.confirm(req),
+            input: (req: InputRequest) => engine.input(req),
+            select: <T>(req: SelectRequest<T>) => engine.select(req),
+            password: (req: PasswordRequest) => engine.password(req),
+            awaitAction: (req) => engine.awaitAction(req),
+        };
+    }
+
     /** Build a CommandContext for .actionCtx() handlers. */
     private buildCommandContext(def: CommandDef, path: string[], locale: string, t: LocalizePlugin['t'], run: RunEnv): CommandContext {
         const self = this;
         const name = path.join(' ');
         const state = { stdinClaimed: false };
-        const unavailable = () => CliError.capabilityError('commander::interactive_unavailable');
         return {
             commandPath: [this.name, ...path],
             commandName: name,
@@ -925,15 +936,9 @@ class CliBuilder implements Cli {
                     t,
                 );
             },
-            // Wiring placeholders — the real engines land with the eligibility,
-            // prompt and envelope blocks. The type surface is frozen now.
-            prompt: {
-                confirm: async () => { throw unavailable(); },
-                input: async () => { throw unavailable(); },
-                select: async () => { throw unavailable(); },
-                password: async () => { throw unavailable(); },
-                awaitAction: async () => { throw unavailable(); },
-            },
+            // Context-scoped prompt engine (readline + raw-mode TTY). Every call
+            // re-checks eligibility and takes the single-active-prompt lease.
+            prompt: this.buildPromptApi(t, run, state),
             isInteractive: () => run.interactive,
             claimStdin: () => { state.stdinClaimed = true; },
             get stdinClaimed() { return state.stdinClaimed; },

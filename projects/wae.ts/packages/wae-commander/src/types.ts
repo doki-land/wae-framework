@@ -169,6 +169,15 @@ export class SecretInput {
     }
 }
 
+/**
+ * Injectable stdin stream. A real `process.stdin` TTY carries `isTTY` and
+ * `setRawMode`; test fakes implement `setRawMode` to exercise the password path.
+ */
+export type PromptStream = NodeJS.ReadableStream & {
+    isTTY?: boolean;
+    setRawMode?: (mode: boolean) => unknown;
+};
+
 /** Ask the operator a yes/no question. `default` applies only to an empty line in an interactive session. */
 export type ConfirmRequest = { key: string; default?: boolean; deadlineMs?: number };
 
