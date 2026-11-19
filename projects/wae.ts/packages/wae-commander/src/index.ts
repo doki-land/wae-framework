@@ -735,15 +735,17 @@ class CliBuilder implements Cli {
             // Unknown command: attach a suggestion when possible
             const names = this.roots.flatMap((r) => r.def.names);
             const suggest = closestMatch(cmdToken, names);
+            const args: Record<string, string> = suggest ? { cmd: cmdToken, suggest } : { cmd: cmdToken };
             this.emitDiagnostic(
                 {
                     code: 'commander::unknown_command',
                     severity: 'error',
-                    args: suggest ? { cmd: cmdToken, suggest } : { cmd: cmdToken },
+                    args,
                 },
                 diagnosticContext,
                 t,
             );
+            this.writeEnvelope(failureEnvelope(CliError.parseError('commander::unknown_command', args), t), envelopeState);
             return 2;
         }
 
@@ -880,15 +882,17 @@ class CliBuilder implements Cli {
                     ? closestMatch(unknownToken, childNames)
                     : '';
                 const cmd = [...targetPath, ...remaining, ...tail].join(' ');
+                const args: Record<string, string> = suggest ? { cmd, suggest } : { cmd };
                 this.emitDiagnostic(
                     {
                         code: 'commander::unknown_command',
                         severity: 'error',
-                        args: suggest ? { cmd, suggest } : { cmd },
+                        args,
                     },
                     diagnosticContext,
                     t,
                 );
+                this.writeEnvelope(failureEnvelope(CliError.parseError('commander::unknown_command', args), t), envelopeState);
                 return 2;
             }
             this.printHelp(formatCommandHelp(this.name, target, t, targetPath, this.rootOptions), run);
@@ -912,6 +916,7 @@ class CliBuilder implements Cli {
                 diagnosticContext,
                 t,
             );
+            this.writeEnvelope(failureEnvelope(cliErr, t), envelopeState);
             return cliErr.exitCode;
         }
 
