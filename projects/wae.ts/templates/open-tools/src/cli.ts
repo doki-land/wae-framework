@@ -6,7 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createCli } from '@wae/commander';
+import { createCli, EXIT } from '@wae/commander';
 import { hello } from './index.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -20,8 +20,9 @@ cli.command('hello', 'cli.cmd.hello')
     .option('--name <text>', 'cli.opt.name', { default: '{{name}}' })
     .actionCtx(async (options, _args, ctx) => {
         const name = typeof options.name === 'string' ? options.name : '{{name}}';
-        ctx.stdout(hello(name));
-        return 0;
+        const greeting = hello(name);
+        ctx.emitResult({ greeting }, greeting);
+        return EXIT.OK;
     });
 
 /**

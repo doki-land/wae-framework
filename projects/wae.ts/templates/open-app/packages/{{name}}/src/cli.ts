@@ -3,8 +3,8 @@
  * Agent-facing CLI skeleton.
  *
  * Contract:
- * - non-interactive, always exits with a stable code
- * - `--json` returns `{ ok, data }` or `{ ok: false, error }`
+ * - non-interactive, always exits with a stable engine `EXIT` code
+ * - `--json` emits exactly one `wae.cli-result/v0` envelope on stdout via `ctx.emitResult`/`ctx.emitFailure`
  * - every mutating command supports `--dry-run`
  * - every command configures the audit actor before calling the native layer
  */
@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { createCli, type CommandContext, type ParsedOptions } from '@wae/commander';
+import { createCli, CliError, type CommandContext, type ParsedOptions } from '@wae/commander';
 
 import { AppError, EXIT, fromNativeError } from './errors.js';
 import { loadRuntimeContract, type ActorChannel } from './runtime.js';
@@ -44,8 +44,7 @@ const cli = createCli('{{name}}')
     // enum validation live in `bootstrap()` so the help tree stays stable.
     .option('--actor <id>', 'cli.opt.actor')
     .option('--actor-kind <kind>', 'cli.opt.actor-kind')
-    .option('--actor-source <source>', 'cli.opt.actor-source')
-    .option('--json', 'cli.opt.json');
+    .option('--actor-source <source>', 'cli.opt.actor-source');
 
 function stringOption(options: ParsedOptions, key: string): string | undefined {
     const value = options[key];
@@ -107,22 +106,10 @@ function bootstrap(options: ParsedOptions): void {
     });
 }
 
-function emit(options: ParsedOptions, ctx: CommandContext, data: unknown, human: string): void {
-    if (flag(options, 'json')) {
-        ctx.stdout(JSON.stringify({ ok: true, data }, null, 2));
-        return;
-    }
-    if (human) ctx.stdout(human);
-}
-
-function fail(options: ParsedOptions, ctx: CommandContext, error: unknown): number {
+function fail(ctx: CommandContext, error: unknown): number {
+    if (error instanceof CliError) throw error;
     const appError = fromNativeError(error);
-    if (flag(options, 'json')) {
-        ctx.stdout(JSON.stringify({ ok: false, error: appError.toJSON() }, null, 2));
-    }
-    else {
-        ctx.stderr(`${appError.code}: ${appError.message}`);
-    }
+    ctx.emitFailure({ code: appError.code, message: appError.message });
     return appError.exitCode;
 }
 
@@ -187,11 +174,11 @@ cli.command('capabilities', 'cli.cmd.capabilities')
         try {
             bootstrap(options);
             const report = capabilities();
-            emit(options, ctx, report, formatCapabilities(report.items, report.notes));
+            ctx.emitResult(report, formatCapabilities(report.items, report.notes));
             return EXIT.OK;
         }
         catch (error) {
-            return fail(options, ctx, error);
+            return fail(ctx, error);
         }
     });
 
@@ -205,11 +192,11 @@ cli.command('inspect', 'cli.cmd.inspect')
                 root: stringOption(options, 'root'),
                 limit: integerOption(options, 'limit'),
             });
-            emit(options, ctx, report, formatInspection(report));
+            ctx.emitResult(report, formatInspection(report));
             return EXIT.OK;
         }
         catch (error) {
-            return fail(options, ctx, error);
+            return fail(ctx, error);
         }
     });
 
@@ -226,15 +213,15 @@ cli.command('install', 'cli.cmd.install')
             bootstrap(options);
             const plan = installPlan(request);
             if (flag(options, 'dry-run')) {
-                emit(options, ctx, { dryRun: true, plan }, `dry-run\n\n${formatInstall(plan)}`);
+                ctx.emitResult({ dryRun: true, plan }, `dry-run\n\n${formatInstall(plan)}`);
                 return EXIT.OK;
             }
             installApply(request);
-            emit(options, ctx, { dryRun: false, plan }, `installed\n\n${formatInstall(plan)}`);
+            ctx.emitResult({ dryRun: false, plan }, `installed\n\n${formatInstall(plan)}`);
             return EXIT.OK;
         }
         catch (error) {
-            return fail(options, ctx, error);
+            return fail(ctx, error);
         }
     });
 
@@ -247,15 +234,15 @@ cli.command('uninstall', 'cli.cmd.uninstall')
             bootstrap(options);
             const plan = uninstallPlan(request);
             if (flag(options, 'dry-run')) {
-                emit(options, ctx, { dryRun: true, plan }, `dry-run\n\n${formatUninstall(plan)}`);
+                ctx.emitResult({ dryRun: true, plan }, `dry-run\n\n${formatUninstall(plan)}`);
                 return EXIT.OK;
             }
             uninstallApply(request);
-            emit(options, ctx, { dryRun: false, plan }, `uninstalled\n\n${formatUninstall(plan)}`);
+            ctx.emitResult({ dryRun: false, plan }, `uninstalled\n\n${formatUninstall(plan)}`);
             return EXIT.OK;
         }
         catch (error) {
-            return fail(options, ctx, error);
+            return fail(ctx, error);
         }
     });
 
@@ -265,11 +252,11 @@ cli.command('gui', 'cli.cmd.gui')
         try {
             bootstrap(options);
             const backend = await runGui({ contentDir: stringOption(options, 'content-dir') });
-            emit(options, ctx, { backend }, `closed (${backend})`);
+            ctx.emitResult({ backend }, `closed (${backend})`);
             return EXIT.OK;
         }
         catch (error) {
-            return fail(options, ctx, error);
+            return fail(ctx, error);
         }
     });
 
@@ -291,11 +278,11 @@ cli.command('audit', 'cli.cmd.audit')
                 toMs: integerOption(options, 'to-ms'),
                 limit: integerOption(options, 'limit'),
             });
-            emit(options, ctx, entries, JSON.stringify(entries, null, 2));
+            ctx.emitResult(entries, JSON.stringify(entries, null, 2));
             return EXIT.OK;
         }
         catch (error) {
-            return fail(options, ctx, error);
+            return fail(ctx, error);
         }
     });
 
@@ -304,11 +291,11 @@ cli.command('version', 'cli.cmd.version')
         try {
             bootstrap(options);
             const current = version();
-            emit(options, ctx, { version: current }, current);
+            ctx.emitResult({ version: current }, current);
             return EXIT.OK;
         }
         catch (error) {
-            return fail(options, ctx, error);
+            return fail(ctx, error);
         }
     });
 

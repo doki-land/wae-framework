@@ -6,17 +6,10 @@
  * second schema and without parsing message prefixes.
  */
 
-/** Process exit codes. `USAGE` is produced by `@wae/commander` itself. */
-export const EXIT = {
-    /** Success. */
-    OK: 0,
-    /** Runtime failure that is not a missing capability. */
-    FAILURE: 1,
-    /** Parse / validation failure. */
-    USAGE: 2,
-    /** Structured capability failure (`unsupported_platform`, `not_implemented`, `dependency_blocked`). */
-    CAPABILITY: 3,
-} as const;
+import { EXIT } from '@wae/commander';
+
+/** Process exit codes come from the `@wae/commander` engine contract. */
+export { EXIT };
 
 /** Error payload emitted by the native boundary. */
 export interface ErrorPayload {
@@ -44,9 +37,21 @@ export class AppError extends Error {
         this.path = payload.path;
     }
 
-    /** Exit code derived from the structured payload. */
+    /** Exit code derived from the structured payload, on the engine `EXIT` contract. */
     get exitCode(): number {
-        return this.capability ? EXIT.CAPABILITY : EXIT.FAILURE;
+        switch (this.code) {
+            case 'unsupported_platform':
+            case 'not_implemented':
+            case 'dependency_blocked':
+                return EXIT.CAPABILITY;
+            case 'invalid_argument':
+            case 'unknown_command':
+                return EXIT.USAGE;
+            case 'canceled':
+                return EXIT.CANCELED;
+            default:
+                return this.capability ? EXIT.CAPABILITY : EXIT.FAILURE;
+        }
     }
 
     /** Machine-readable form. */
