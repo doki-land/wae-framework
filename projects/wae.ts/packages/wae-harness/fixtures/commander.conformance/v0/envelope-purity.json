@@ -1,0 +1,1 @@
+{"schema":"commander.conformance/v0","id":"envelope-purity","mode":"pipe","argv":["confirm","--value","yes","--json"],"stdin":[],"expect":{"exitCode":0,"stdoutSingleJson":true,"envelope":{"ok":true,"data":{"confirmed":true,"source":"machine"}}}}
