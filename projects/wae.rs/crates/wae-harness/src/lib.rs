@@ -112,6 +112,19 @@ impl<B: WebViewBackend> Harness<B> {
         Ok(Self { host: WebViewHost::open(options, handler)? })
     }
 
+    /// 接管一个已存在的宿主，例如应用自己已经打开的 GUI 窗口。
+    ///
+    /// 应用只需要在 `WAE_HARNESS_PORT` 存在时转入
+    /// [`serve_from_env`]，控制通道就能驱动真实窗口而不是另开一个副本。
+    pub fn from_host(host: WebViewHost<B>) -> Self {
+        Self { host }
+    }
+
+    /// 归还宿主，供调用方继续自行泵消息。
+    pub fn into_host(self) -> WebViewHost<B> {
+        self.host
+    }
+
     /// 宿主只读访问（例如查询 `backend_name`）。
     pub fn host(&self) -> &WebViewHost<B> {
         &self.host
