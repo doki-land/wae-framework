@@ -324,8 +324,14 @@ export type CommandContext = {
      * `wae.cli-result/v0` envelope to stdout; human mode writes `human ?? JSON`.
      */
     emitResult: (data: unknown, human?: string) => void;
-    /** Emit a typed failure. JSON mode writes one envelope; human mode writes stderr text. */
-    emitFailure: (error: { code: string; message: string }, descriptor?: ActionRequiredDescriptor) => void;
+    /**
+     * Emit a typed failure. JSON mode writes one envelope; human mode writes stderr text.
+     *
+     * `detail` carries the structured, machine-readable parameters of the code (path,
+     * capability, platform, ...). JSON mode copies it into `error.detail` so CLI
+     * consumers branch on the same typed payload the SDK and GUI receive.
+     */
+    emitFailure: (error: { code: string; message: string; detail?: Record<string, unknown> }, descriptor?: ActionRequiredDescriptor) => void;
     /** Throw the exit-5 action-required error carrying the resume descriptor. */
     actionRequired: (descriptor: ActionRequiredDescriptor) => never;
 };

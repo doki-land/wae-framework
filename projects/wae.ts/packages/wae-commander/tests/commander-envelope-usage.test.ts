@@ -63,6 +63,20 @@ test('emitFailure owns the single envelope when it precedes emitResult', async (
     assert.deepEqual(envelope.error, { code: 'cli::gone', message: 'gone' });
 });
 
+test('emitFailure copies structured detail into the envelope error', async () => {
+    const out: string[] = [];
+    const cli = envelopeCli(out);
+    const detail = { code: 'io_error', path: 'C:\\locked', platform: 'windows' };
+    cli.command('go', 'cmd.go').actionCtx(async (_options, _args, ctx) => {
+        ctx.emitFailure({ code: 'io_error', message: 'i/o error at C:\\locked', detail });
+        return 1;
+    });
+    assert.equal(await cli.parse(['--json', 'go']), 1);
+    assert.equal(out.length, 1);
+    const envelope = JSON.parse(out[0]!);
+    assert.deepEqual(envelope.error, { code: 'io_error', message: 'i/o error at C:\\locked', detail });
+});
+
 test('action-required exits 5 and the envelope carries the descriptor block', async () => {
     const out: string[] = [];
     const cli = envelopeCli(out);

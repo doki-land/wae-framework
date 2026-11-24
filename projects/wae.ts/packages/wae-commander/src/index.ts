@@ -1036,7 +1036,11 @@ class CliBuilder implements Cli {
             },
             emitFailure: (error, descriptor) => {
                 if (run.mode === 'json') {
-                    const envelope: Record<string, unknown> = { schema: CLI_RESULT_SCHEMA, ok: false, error: { code: error.code, message: error.message } };
+                    const envelope: Record<string, unknown> = {
+                        schema: CLI_RESULT_SCHEMA,
+                        ok: false,
+                        error: { code: error.code, message: error.message, ...(error.detail !== undefined ? { detail: error.detail } : {}) },
+                    };
                     if (descriptor !== undefined) envelope.actionRequired = cleanActionRequired(descriptor);
                     this.writeEnvelope(envelope, envelopeState);
                 } else {
