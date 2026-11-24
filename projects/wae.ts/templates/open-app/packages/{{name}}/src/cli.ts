@@ -109,7 +109,11 @@ function bootstrap(options: ParsedOptions): void {
 function fail(ctx: CommandContext, error: unknown): number {
     if (error instanceof CliError) throw error;
     const appError = fromNativeError(error);
-    ctx.emitFailure({ code: appError.code, message: appError.message });
+    ctx.emitFailure({
+        code: appError.code,
+        message: appError.message,
+        ...(appError.detail !== undefined ? { detail: appError.detail } : {}),
+    });
     return appError.exitCode;
 }
 

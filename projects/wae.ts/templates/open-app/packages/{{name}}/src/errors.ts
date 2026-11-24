@@ -27,14 +27,20 @@ export class AppError extends Error {
     readonly capability?: string;
     readonly platform?: string;
     readonly path?: string;
+    /**
+     * Raw structured parameters from the native boundary, forwarded verbatim
+     * into the CLI failure envelope so machine consumers never parse prose.
+     */
+    readonly detail?: Record<string, unknown>;
 
-    constructor(payload: ErrorPayload) {
+    constructor(payload: ErrorPayload, detail?: Record<string, unknown>) {
         super(payload.message);
         this.name = 'AppError';
         this.code = payload.code;
         this.capability = payload.capability;
         this.platform = payload.platform;
         this.path = payload.path;
+        this.detail = detail;
     }
 
     /** Exit code derived from the structured payload, on the engine `EXIT` contract. */
@@ -91,13 +97,16 @@ export function fromNativeError(value: unknown): AppError {
         const native = value as Error & { code?: unknown; detail?: unknown };
         if (typeof native.code === 'string' && native.code !== '') {
             const detail = isRecord(native.detail) ? native.detail : undefined;
-            return new AppError({
-                code: native.code,
-                ...(typeof detail?.capability === 'string' ? { capability: detail.capability } : {}),
-                ...(typeof detail?.platform === 'string' ? { platform: detail.platform } : {}),
-                ...(typeof detail?.path === 'string' ? { path: detail.path } : {}),
-                message: typeof detail?.message === 'string' ? detail.message : message,
-            });
+            return new AppError(
+                {
+                    code: native.code,
+                    ...(typeof detail?.capability === 'string' ? { capability: detail.capability } : {}),
+                    ...(typeof detail?.platform === 'string' ? { platform: detail.platform } : {}),
+                    ...(typeof detail?.path === 'string' ? { path: detail.path } : {}),
+                    message: typeof detail?.message === 'string' ? detail.message : message,
+                },
+                detail,
+            );
         }
     }
     const lower = message.toLowerCase();
