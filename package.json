@@ -19,7 +19,7 @@
         "wae": "pnpm run build:ts && node projects/wae.ts/packages/wae/dist/cli.js"
     },
     "devDependencies": {
-        "@doki-land/nifty": "^0.1.10",
+        "@doki-land/nifty": "^0.1.17",
         "@wae/commander": "workspace:*",
         "@wae/wae": "workspace:*"
     }
